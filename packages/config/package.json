@@ -1,0 +1,15 @@
+{
+  "name": "@storywriter/config",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["tsconfig", "eslint"],
+  "exports": {
+    "./tsconfig/base": "./tsconfig/base.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --version"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

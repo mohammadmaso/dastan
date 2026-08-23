@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Default (no-JS) & light-paper: a creamy "craft paper" typing theme. */
+  :root {
+    --background: 44 36% 92%;
+    --foreground: 30 24% 17%;
+    --card: 43 45% 96%;
+    --card-foreground: 30 24% 17%;
+    --primary: 30 25% 15%;
+    --primary-foreground: 44 36% 96%;
+    --secondary: 41 30% 88%;
+    --secondary-foreground: 30 20% 22%;
+    --muted: 41 28% 88%;
+    --muted-foreground: 30 12% 40%;
+    --accent: 42 38% 89%;
+    --accent-foreground: 30 22% 20%;
+    --destructive: 8 70% 46%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 39 28% 80%;
+    --input: 39 28% 80%;
+    --ring: 33 35% 45%;
+    --radius: 0.5rem;
+  }
+
+  /* Plain white light theme. */
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 5.5%;
+    --card-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* subtle craft-paper texture for the light themes */
+    background-image: radial-gradient(circle at 1px 1px, hsl(var(--foreground) / 0.035) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  html.dark body {
+    background-image: none;
+  }
+  h1, h2, h3 {
+    font-family: var(--font-serif);
+  }
+
+  /* ---- Persian / RTL ---- */
+  html[dir="rtl"] body,
+  html[dir="rtl"] h1,
+  html[dir="rtl"] h2,
+  html[dir="rtl"] h3,
+  html[dir="rtl"] .font-serif {
+    font-family: var(--font-fa), var(--font-serif), serif;
+  }
+  html[dir="rtl"] .font-sans {
+    font-family: var(--font-fa), var(--font-sans), sans-serif;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 8px;
+}
+
+/* React Flow background theme tint */
+.react-flow__background {
+  background-color: transparent;
+}
