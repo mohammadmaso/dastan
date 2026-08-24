@@ -150,6 +150,8 @@ export class MemoryService {
       emit?: ActivityEmitter;
       /** Lineage branches (e.g. a forked branch's parent) to include in BRANCH scope. */
       relatedBranches?: string[];
+      /** Skip the LLM intent-planning step and search the raw query directly. */
+      skipPlanning?: boolean;
     },
   ): Promise<{ memories: Array<{ text: string; score: number; scope: MemoryScope; meta?: string }> }> {
     const { storyId, branchId, query, depth, emit } = params;
@@ -167,8 +169,10 @@ export class MemoryService {
       gathered.push({ text, score, scope, meta });
     };
 
-    // 1) plan search intents (agentic)
-    const intents = await this.planIntents(query, storyId, branchId, emit);
+    // 1) plan search intents — unless skipped (direct search on the raw query).
+    const intents = params.skipPlanning
+      ? [{ query, scope: MemoryScope.BRANCH }]
+      : await this.planIntents(query, storyId, branchId, emit);
 
     // 2) run each intent
     for (const intent of intents.slice(0, 6)) {

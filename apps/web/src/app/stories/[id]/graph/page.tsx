@@ -113,7 +113,14 @@ export default function GraphPage({ params }: { params: { id: string } }) {
       </div>
 
       <div className="grid flex-1 grid-cols-1 md:grid-cols-[1fr_320px]">
-        <div className="h-[70vh] md:h-auto">
+        <div className="relative h-[70vh] md:h-auto">
+          {(graph?.entities?.length ?? 0) === 0 && !detail ? (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+              <p className="rounded-lg border bg-card/90 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+                {t('graph.emptyTitle')}
+              </p>
+            </div>
+          ) : null}
           <ReactFlow
             nodes={nodes}
             edges={edges}

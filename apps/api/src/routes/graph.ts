@@ -5,9 +5,10 @@ export default async function graphRoutes(app: FastifyInstance, opts: { containe
   const { container } = opts;
 
   // GET /stories/:id/graph?branchId=...  → full knowledge graph for viewer
+  // "all"/missing means every branch (any), otherwise filter to one branch.
   app.get('/stories/:id/graph', async (req) => {
     const query = req.query as { branchId?: string };
-    const branchId = query.branchId && query.branchId !== 'all' ? query.branchId : null;
+    const branchId = query.branchId && query.branchId !== 'all' ? query.branchId : 'any';
     return container.memory.getGraph((req.params as any).id, branchId);
   });
 

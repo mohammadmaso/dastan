@@ -52,7 +52,7 @@ export class SettingsService {
       embeddingEnabled: r?.embedding_enabled ?? true,
       generation: {
         temperature: r?.temperature ?? 0.8,
-        maxTokens: r?.max_tokens ?? 4096,
+        maxTokens: r?.max_tokens ?? 2000,
         topP: r?.top_p ?? 1.0,
         suggestionCount: r?.suggestion_count ?? 3,
         retrievalDepth: r?.retrieval_depth ?? 5,

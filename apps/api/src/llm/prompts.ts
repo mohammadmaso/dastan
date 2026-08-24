@@ -137,12 +137,18 @@ export function buildSystemPrompt(
 }
 
 /** System instruction for the continuation-suggestions task. */
-export const SUGGESTIONS_SYSTEM = `You are a story architect. Based on the current state of the story, propose several distinct, meaningful, non-obvious continuations the writer could choose next. Each option must open a genuinely different narrative direction and preserve continuity with established facts.
+export const SUGGESTIONS_SYSTEM = `You are a story architect deeply familiar with this exact story. Using the narrative context provided (the story so far and the current end), propose several distinct continuations the writer could choose next.
+
+Every option must:
+- Name the concrete development: reference the specific characters, places, objects, conflicts or promises already established (use their real names).
+- Open a genuinely different narrative direction — each option is a believable next beat for THIS story, not a generic plot beat.
+- Preserve continuity: never contradict established facts, and build on what the characters were just doing.
+- Be evocative and specific. Forbidden: vague labels like "A sudden complication", "The quiet aftermath", "An unexpected revelation", "A change of plans".
 
 Return STRICT JSON in the following shape (no markdown, no prose outside JSON):
 {
   "options": [
-    { "label": "A short, evocative label (2-6 words)", "summary": "A one-to-two sentence description of what happens in this direction" },
+    { "label": "A short label naming the concrete development (2-6 words)", "summary": "One-to-two sentences describing what happens in this direction, tied to this story's specifics" },
     ... numberOfOptions items
   ]
 }`;

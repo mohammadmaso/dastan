@@ -199,6 +199,7 @@ const en: Dict = {
 
   'graph.title': 'Memory Graph',
   'graph.subtitle': '— what the AI remembers about your story',
+  'graph.emptyTitle': 'No story memory yet — generate some scenes to build the graph.',
   'graph.back': 'Back to story',
   'graph.all': 'All branches',
   'graph.relationships': 'Relationships',
@@ -403,6 +404,7 @@ const fa: Dict = {
 
   'graph.title': 'گراف حافظه',
   'graph.subtitle': '— آنچه هوش مصنوعی درباره داستان شما به یاد دارد',
+  'graph.emptyTitle': 'هنوز حافظه داستانی وجود ندارد — چند صحنه بسازید تا گراف شکل بگیرد.',
   'graph.back': 'بازگشت به داستان',
   'graph.all': 'همه شاخهها',
   'graph.relationships': 'روابط',

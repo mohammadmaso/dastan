@@ -76,6 +76,7 @@ export function Continuations({ options, onChoose, onMore, onCustom, onBranchFro
         </div>
         <div className="flex gap-2">
           <Textarea
+            dir="auto"
             className="min-h-[56px] flex-1"
             placeholder={t('cont.placeholder')}
             value={custom}

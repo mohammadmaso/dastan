@@ -9,6 +9,8 @@ export interface RetrievalAgentInput {
   scopes?: MemoryScope[];
   depth?: number;
   relatedBranches?: string[];
+  /** Skip the LLM intent-planning step and search the raw query directly. */
+  skipPlanning?: boolean;
   onActivity?: (
     type: 'searching_memory' | 'search_intent' | 'memory_found' | 'reviewing_recent',
     message?: string,
@@ -39,6 +41,7 @@ export class RetrievalAgent {
       depth,
       emit,
       relatedBranches: input.relatedBranches,
+      skipPlanning: input.skipPlanning,
     });
 
     if (memories.length) {

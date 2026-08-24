@@ -53,6 +53,7 @@ export function StartScreen({ storyId, busy, onGenerate, onSaveOwn }: Props) {
           <div className="mx-auto mt-6 max-w-sm space-y-2 text-start">
             <Textarea
               autoFocus
+              dir="auto"
               className="min-h-[120px] font-serif text-base leading-6"
               placeholder={t('start.placeholder')}
               value={own}
