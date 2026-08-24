@@ -156,10 +156,11 @@ Every option must:
 Return STRICT JSON in the following shape (no markdown, no prose outside JSON):
 {
   "options": [
-    { "label": "A short label naming the concrete development (2-6 words)", "summary": "One-to-two sentences describing what happens in this direction, tied to this story's specifics" },
+    { "label": "A short label naming the concrete development (2-6 words)", "summary": "One sentence, max 120 characters, describing what happens" },
     ... numberOfOptions items
   ]
-}`;
+}
+Keep every summary under 120 characters so the full JSON fits in the response.`;
 
 /** Build the prompt that asks the model to write one continuation segment. */
 export function buildContinuationPrompt(params: {

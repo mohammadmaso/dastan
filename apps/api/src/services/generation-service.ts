@@ -266,10 +266,20 @@ export class GenerationService {
         system,
         prompt: user,
         temperature: 0.9,
-        maxOutputTokens: 1200,
-        abortSignal: AbortSignal.timeout(45_000),
+        maxOutputTokens: Math.min(Math.max(appCall.maxTokens, 2000), 4096),
+        abortSignal: AbortSignal.timeout(90_000),
+        providerOptions: {
+          openai: { responseFormat: { type: 'json_object' } },
+        },
       });
       const options = parseContinuationOptions(result.text, count);
+      if (!options.length && result.text.trim()) {
+        console.warn(
+          '[suggestions] parse returned empty',
+          `finish=${result.finishReason}`,
+          result.text.slice(0, 400),
+        );
+      }
       if (options.length) writer?.write({ type: 'data-continuations', data: { options } });
       return options;
     } catch (err) {

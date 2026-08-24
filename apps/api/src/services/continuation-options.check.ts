@@ -9,4 +9,8 @@ assert.equal(wrapped.length, 1);
 assert.equal(wrapped[0].label, 'The river crossing');
 assert.equal(parseContinuationOptions('not json', 3).length, 0);
 assert.equal(parseContinuationOptions('{"options":[]}', 3).length, 0);
+
+const truncated = '{"options":[{"label":"The river crossing","summary":"They wade in."},{"label":"The storm","summary":"Rain falls."},{"label":"Cut off","summary":"no close';
+assert.equal(parseContinuationOptions(truncated, 3).length, 2);
+
 console.log('continuation-options ok');
