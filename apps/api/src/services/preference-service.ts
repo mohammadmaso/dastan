@@ -42,11 +42,10 @@ export class PreferenceService {
       [storyId, JSON.stringify(preferences), note ?? null],
     );
     const saved = this.map(rows[0]);
-    try {
-      await this.memory?.ingestWorld(storyId, preferences);
-    } catch (err) {
+    // ponytail: Graphiti world ingest is slow (~1–2min); Postgres is source of truth.
+    void this.memory?.ingestWorld(storyId, preferences).catch((err) => {
       console.warn('[prefs] world ingest skipped', (err as Error).message);
-    }
+    });
     return saved;
   }
 
