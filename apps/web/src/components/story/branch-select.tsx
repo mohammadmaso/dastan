@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useApp } from '@/lib/app-state';
 import { useDialogs } from '@/lib/dialogs';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Props {
   storyId: string;
@@ -79,20 +80,20 @@ export function BranchSelect({ storyId, branches, activeBranchId, onSwitch, onCh
   return (
     <div className="flex items-center gap-1">
       <GitBranch className="h-4 w-4 text-muted-foreground" />
-      <select
-        className="h-8 max-w-[180px] rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none"
+      <Select
         value={activeBranchId}
-        onChange={(e) => {
-          const b = branches.find((x) => x.id === e.target.value);
+        onValueChange={(id) => {
+          const b = branches.find((x) => x.id === id);
           if (b) onSwitch(b);
         }}
       >
-        {branches.map((b) => (
-          <option key={b.id} value={b.id}>
-            {b.name}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="h-8 w-[180px]"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {branches.map((b) => (
+            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Button size="icon" variant="ghost" className="h-7 w-7" title={t('bm.new')} onClick={newBranch}>
         <Plus className="h-3.5 w-3.5" />
       </Button>

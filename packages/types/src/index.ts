@@ -158,6 +158,7 @@ export interface Branch {
   id: string;
   storyId: string;
   parentBranchId: string | null;
+  forkNodeId: string | null;
   name: string;
   status: BranchStatus;
   createdAt: string;
@@ -167,6 +168,7 @@ export interface Branch {
 export interface CreateBranchInput {
   name?: string;
   parentBranchId?: string | null;
+  forkNodeId?: string | null;
 }
 
 export interface UpdateBranchInput {
@@ -205,6 +207,8 @@ export interface StoryNode {
   parentNodeId: string | null;
   /** Index within the branch's linear order (for rendering + local context). */
   position: number;
+  /** Order among siblings that share the same parent (keeps forks visible). */
+  siblingIndex: number;
   content: string;
   nodeType: NodeType;
   author: NodeAuthor;
@@ -292,6 +296,18 @@ export interface ActivityEvent {
   query?: string;
   scope?: MemoryScope;
   token?: string;
+  facts?: string[];
+  at: string;
+}
+
+/** Live retrieval step shown in the agent-trace rail. */
+export interface RetrievalStep {
+  id: string;
+  tool: 'search_memory' | 'look_up_entity';
+  query: string;
+  scope?: MemoryScope | string;
+  status: 'searching' | 'found' | 'empty' | 'error';
+  facts?: string[];
   at: string;
 }
 

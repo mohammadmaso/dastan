@@ -16,7 +16,6 @@ export class NodeService {
     private memory: MemoryService,
   ) {}
 
-  // ---- mapping -------------------------------------------------------------
   private map(row: Record<string, unknown>): StoryNode {
     return {
       id: String(row.id),
@@ -24,6 +23,7 @@ export class NodeService {
       branchId: String(row.branch_id),
       parentNodeId: row.parent_node_id ? String(row.parent_node_id) : null,
       position: Number(row.position),
+      siblingIndex: Number(row.sibling_index ?? 0),
       content: String(row.content ?? ''),
       nodeType: row.node_type as StoryNode['nodeType'],
       author: row.author as StoryNode['author'],
@@ -46,11 +46,18 @@ export class NodeService {
     return this.map(rows[0]);
   }
 
-  // ---- queries -------------------------------------------------------------
   async listByBranch(branchId: string): Promise<StoryNode[]> {
     const { rows } = await this.db.query<Record<string, unknown>>(
-      'SELECT * FROM story_nodes WHERE branch_id = $1 ORDER BY position ASC, created_at ASC',
+      'SELECT * FROM story_nodes WHERE branch_id = $1 ORDER BY position ASC, sibling_index ASC, created_at ASC',
       [branchId],
+    );
+    return rows.map((r) => this.map(r));
+  }
+
+  async listByStory(storyId: string): Promise<StoryNode[]> {
+    const { rows } = await this.db.query<Record<string, unknown>>(
+      'SELECT * FROM story_nodes WHERE story_id = $1 ORDER BY created_at ASC',
+      [storyId],
     );
     return rows.map((r) => this.map(r));
   }
@@ -59,7 +66,6 @@ export class NodeService {
     return this.queryNode(id);
   }
 
-  /** The last N nodes of a branch (configurable local context). */
   async recentNodes(branchId: string, count: number): Promise<StoryNode[]> {
     const { rows } = await this.db.query<Record<string, unknown>>(
       `SELECT * FROM story_nodes WHERE branch_id = $1
@@ -77,7 +83,37 @@ export class NodeService {
     return rows[0] ? this.map(rows[0]) : null;
   }
 
-  // ---- writes --------------------------------------------------------------
+  /**
+   * Walk parentNodeId from a node (or the branch tip) back to the story root.
+   * Crosses branch boundaries so a forked branch reads its inherited path.
+   */
+  async lineage(from: StoryNode, maxNodes = 80): Promise<StoryNode[]> {
+    const chain: StoryNode[] = [from];
+    const seen = new Set<string>([from.id]);
+    let cursor = from;
+    while (cursor.parentNodeId && !seen.has(cursor.parentNodeId) && chain.length < maxNodes) {
+      try {
+        cursor = await this.queryNode(cursor.parentNodeId);
+      } catch {
+        break;
+      }
+      seen.add(cursor.id);
+      chain.unshift(cursor);
+    }
+    return chain;
+  }
+
+  /** Episode uuids mapped to nodes on the current path (for ancestor post-filter). */
+  async allowedEpisodeUuids(nodeIds: string[]): Promise<string[]> {
+    if (!nodeIds.length) return [];
+    const { rows } = await this.db.query<{ episode_uuid: string }>(
+      `SELECT episode_uuid FROM memory_episodes
+       WHERE node_id = ANY($1::uuid[]) AND episode_uuid IS NOT NULL`,
+      [nodeIds],
+    );
+    return rows.map((r) => r.episode_uuid);
+  }
+
   async createRoot(storyId: string, branchId: string): Promise<StoryNode> {
     return this.create({
       branchId,
@@ -93,18 +129,25 @@ export class NodeService {
     const { branchId, parentNodeId } = input;
     const branch = await this.branchOf(branchId);
 
-    // Resolve position + inherited chapter.
     let position = 0;
+    let siblingIndex = 0;
     let chapterId: string | null = null;
     let chapterTitle: string | null = null;
     if (parentNodeId) {
       const parent = await this.queryNode(parentNodeId);
+      const { rows: sibs } = await this.db.query<{ c: string }>(
+        `SELECT count(*)::text AS c FROM story_nodes WHERE parent_node_id = $1 AND branch_id = $2`,
+        [parentNodeId, branchId],
+      );
+      siblingIndex = Number(sibs[0]?.c ?? 0);
+      const { rows: pos } = await this.db.query<{ m: string | null }>(
+        `SELECT max(position)::text AS m FROM story_nodes WHERE branch_id = $1`,
+        [branchId],
+      );
+      position = parent.branchId === branchId ? Number(pos[0]?.m ?? parent.position) + 1 : Number(pos[0]?.m ?? -1) + 1;
       if (parent.branchId === branchId) {
-        position = parent.position + 1;
         chapterId = parent.chapterId;
         chapterTitle = parent.chapterTitle;
-      } else {
-        position = await this.branchNodeCount(branchId);
       }
     } else {
       position = await this.branchNodeCount(branchId);
@@ -114,33 +157,45 @@ export class NodeService {
     const author = input.author ?? (nodeType === 'USER_WRITTEN' ? 'user' : 'ai');
     const makeCurrent = input.makeCurrent ?? false;
 
-    const { rows } = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO story_nodes
-         (story_id, branch_id, parent_node_id, position, content, node_type, author,
-          continuation_label, is_current, chapter_id, chapter_title)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING *`,
-      [
-        branch.story_id,
-        branchId,
-        parentNodeId ?? null,
-        position,
-        input.content ?? '',
-        nodeType,
-        author,
-        input.continuationLabel ?? null,
-        makeCurrent,
-        chapterId,
-        chapterTitle,
-      ],
-    );
-
-    if (makeCurrent) {
-      await this.setCurrent(branchId, String(rows[0].id));
+    const client = await this.db.connect();
+    let node: StoryNode;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query<Record<string, unknown>>(
+        `INSERT INTO story_nodes
+           (story_id, branch_id, parent_node_id, position, sibling_index, content, node_type, author,
+            continuation_label, is_current, chapter_id, chapter_title)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, $10, $11)
+         RETURNING *`,
+        [
+          branch.story_id,
+          branchId,
+          parentNodeId ?? null,
+          position,
+          siblingIndex,
+          input.content ?? '',
+          nodeType,
+          author,
+          input.continuationLabel ?? null,
+          chapterId,
+          chapterTitle,
+        ],
+      );
+      const id = String(rows[0].id);
+      if (makeCurrent) {
+        await client.query(`UPDATE story_nodes SET is_current = FALSE WHERE branch_id = $1`, [branchId]);
+        await client.query(`UPDATE story_nodes SET is_current = TRUE WHERE id = $1`, [id]);
+        rows[0].is_current = true;
+      }
+      await client.query('COMMIT');
+      node = this.map(rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    const node = this.map(rows[0]);
 
-    // Add to episodic memory (unless explicitly skipped, e.g. duplication).
     if (!opts.skipMemory && node.content.trim() && node.nodeType !== 'ROOT') {
       try {
         await this.memory.addNodeEpisode(node);
@@ -153,20 +208,19 @@ export class NodeService {
 
   async update(id: string, input: UpdateNodeInput): Promise<StoryNode> {
     const existing = await this.queryNode(id);
-    const contentChanged =
-      input.content !== undefined && input.content !== existing.content;
+    const contentChanged = input.content !== undefined && input.content !== existing.content;
 
-    let chapterId = input.chapterId !== undefined ? input.chapterId : existing.chapterId;
-    // Keep chapter title in sync if only chapterId is given.
-    let chapterTitle = input.chapterId ? existing.chapterTitle : existing.chapterTitle;
+    const label =
+      input.continuationLabel === undefined ? existing.continuationLabel : input.continuationLabel;
+    const chapterId = input.chapterId !== undefined ? input.chapterId : existing.chapterId;
 
     const { rows } = await this.db.query<Record<string, unknown>>(
       `UPDATE story_nodes SET
          content = COALESCE($2, content),
          node_type = COALESCE($3, node_type),
-         continuation_label = COALESCE($4, continuation_label),
+         continuation_label = $4,
          is_current = COALESCE($5, is_current),
-         chapter_id = COALESCE($6, chapter_id),
+         chapter_id = $6,
          chapter_title = COALESCE($7, chapter_title),
          updated_at = now()
        WHERE id = $1 RETURNING *`,
@@ -174,10 +228,10 @@ export class NodeService {
         id,
         input.content ?? null,
         input.nodeType ?? null,
-        input.continuationLabel !== undefined ? input.continuationLabel : null,
+        label,
         input.isCurrent ?? null,
         chapterId,
-        chapterTitle,
+        existing.chapterTitle,
       ],
     );
     if (!rows[0]) throw new NotFoundError('Node not found');
@@ -186,7 +240,6 @@ export class NodeService {
       await this.setCurrent(existing.branchId, id);
     }
 
-    // Reconcile memory when content changed.
     if (contentChanged && String((rows[0] as { content?: string }).content ?? '').trim()) {
       try {
         await this.memory.reconcileNode(existing, this.map(rows[0]));
@@ -198,8 +251,18 @@ export class NodeService {
   }
 
   async setCurrent(branchId: string, nodeId: string): Promise<void> {
-    await this.db.query(`UPDATE story_nodes SET is_current = FALSE WHERE branch_id = $1`, [branchId]);
-    await this.db.query(`UPDATE story_nodes SET is_current = TRUE WHERE id = $1`, [nodeId]);
+    const client = await this.db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`UPDATE story_nodes SET is_current = FALSE WHERE branch_id = $1`, [branchId]);
+      await client.query(`UPDATE story_nodes SET is_current = TRUE WHERE id = $1`, [nodeId]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async remove(id: string): Promise<void> {
@@ -214,9 +277,6 @@ export class NodeService {
     await this.db.query('DELETE FROM story_nodes WHERE id = $1', [id]);
   }
 
-  // ---- chapter boundaries --------------------------------------------------
-  /** Mark a node as a chapter boundary: create a Chapter and reassign the node
-   *  and all following in-branch nodes to it. Purely organizational. */
   async createChapterBoundary(
     storyId: string,
     branchId: string,
@@ -233,7 +293,6 @@ export class NodeService {
     return chapter;
   }
 
-  // ---- helpers -------------------------------------------------------------
   private async branchOf(branchId: string) {
     const { rows } = await this.db.query<Record<string, unknown>>(
       'SELECT * FROM branches WHERE id = $1',

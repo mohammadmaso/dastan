@@ -28,7 +28,7 @@ standalone Markdown story.
 | Frontend         | Next.js, TypeScript, Tailwind, shadcn/ui, React Flow    |
 | Backend          | Fastify, TypeScript                                     |
 | App state        | PostgreSQL                                              |
-| Semantic memory  | FalkorDB knowledge graph + PostgreSQL episodic index    |
+| Semantic memory  | Graphiti (`graphiti-core`) on FalkorDB, one `group_id` per branch |
 | LLM             | Any OpenAI-compatible endpoint (OpenAI, local models, …)|
 | Infra            | Docker Compose, pnpm monorepo                            |
 
@@ -37,7 +37,8 @@ standalone Markdown story.
 ```
 apps/
   web/        Next.js frontend (dashboard, questionnaire, writing studio, graph)
-  api/        Fastify backend (services, routes, memory, LLM)
+  api/        Fastify backend (services, routes, Graphiti client, LLM)
+  memory/     Graphiti sidecar (FastAPI + graphiti-core on FalkorDB)
 packages/
   types/      Shared domain types / typed API contracts
   config/     Shared TS config presets
@@ -68,7 +69,7 @@ any OpenAI-compatible Base URL + API key + model. Local/self-hosted endpoints
 
 ```bash
 pnpm install
-# start postgres + falkordb:  docker compose up -d postgres falkordb
+# start postgres + falkordb + memory:  docker compose up -d postgres falkordb memory
 pnpm dev:api                # http://localhost:3001
 pnpm dev:web                # http://localhost:3000
 ```
@@ -79,8 +80,8 @@ Two synchronized systems keep the app coherent:
 
 - **Narrative state** (PostgreSQL) — the canonical structure: stories, branches,
   nodes, chapters, preferences (versioned), settings.
-- **Semantic memory** (FalkorDB + PostgreSQL) — what the AI remembers: entities,
-  relationships, and episodic content, scoped by `story_id` + `branch_id`.
+- **Semantic memory** (Graphiti on FalkorDB) — episodes, entities and facts,
+  isolated by `group_id` (`story:{id}:world` and `story:{id}:branch:{id}`).
 
 Services follow the spec:
 
@@ -95,10 +96,9 @@ PreferenceService · GenerationService · RetrievalAgent · MemoryService · Exp
 User chooses a direction
   → Story Preferences (latest version, changeable anytime)
   → Current branch + recent nodes (configurable count)
-  → Agentic Retrieval
-       · plan search intents
-       · scoped Graphiti-style searches (branch + story-wide)
-       · entity/relationship expansion from FalkorDB
+  → Agentic Retrieval (AI SDK tool loop)
+       · search_memory / look_up_entity against Graphiti
+       · group_id namespaces + post-filter at the fork point
   → Build context
   → LLM streams the prose (SSE tokens shown live)
   → Save node → add episode to memory → propose continuations
@@ -109,10 +109,9 @@ memory, search intents, memory found, generating) — never hidden chain-of-thou
 
 ### Branch isolation
 
-Every memory operation is scoped by `story_id` and `branch_id`. Different
-branches keep independent memories; story-wide facts (premise, characters, world
-rules, preferences) remain shared across branches. Forked branches inherit their
-lineage context for continuity.
+Every Graphiti write/search uses a `group_id`. Different branches never share a
+namespace. Story-wide facts live in the world group. Forked branches search
+ancestor groups and drop post-fork facts via the episode→node map.
 
 ### Editing nodes
 
@@ -140,14 +139,12 @@ INTERNAL_API_URL                                # server-side proxy (docker serv
 - Knowledge-graph viewer (entities, relationships, episodes, zoom/pan/search)
 - Markdown export per branch
 - Configurable LLM provider + generation settings
-- Docker Compose for the whole app (web, api, postgres, falkordb)
+- Docker Compose for the whole app (web, api, memory, postgres, falkordb)
 
 ## Notes
 
-- The memory layer implements the **Graphiti episodic/semantic memory pattern**
-  (add-episode → extract entities/relationships → scoped retrieval) directly on
-  top of **FalkorDB** plus a PostgreSQL episodic index, keeping the stack
-  TypeScript-only. If FalkorDB or embeddings are unavailable, retrieval degrades
-  gracefully to keyword/episode search — the app never loses user content.
+- Memory is **real Graphiti** (`apps/memory`, `graphiti-core[falkordb]`). The
+  Fastify API is a thin client. If the sidecar is down, writes skip memory and
+  narrative state in Postgres is never lost.
 - Single-user by design; the API is structured so auth/multi-user can be added
   later without a rewrite.

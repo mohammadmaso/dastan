@@ -41,8 +41,8 @@ async function main() {
   app.get('/health', async (_, reply) => {
     try {
       await db.query('SELECT 1');
-      const falkordb = await container.falkordb.ping();
-      return reply.send({ status: 'ok', postgres: true, falkordb });
+      const memory = await container.memory.ping();
+      return reply.send({ status: 'ok', postgres: true, memory });
     } catch {
       return reply.code(503).send({ status: 'degraded', postgres: false });
     }
@@ -87,7 +87,7 @@ async function main() {
 
   await app.listen({ port: config.port, host: config.host });
   app.log.info(`API listening on ${config.host}:${config.port}`);
-  app.log.info(`FalkorDB: ${config.falkordb.host}:${config.falkordb.port}`);
+  app.log.info(`Memory sidecar: ${config.memory.url}`);
 }
 
 async function waitForDb(db: import('pg').Pool, attempts = 30) {

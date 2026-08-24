@@ -13,17 +13,25 @@ import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/ui/error-state';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function StoriesPage() {
   const router = useRouter();
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const dialogs = useDialogs();
   const [stories, setStories] = useState<StorySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
       setStories(await api.listStories());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
@@ -41,13 +49,21 @@ export default function StoriesPage() {
       danger: true,
     });
     if (!ok) return;
-    await api.deleteStory(id);
-    load();
+    try {
+      await api.deleteStory(id);
+      load();
+    } catch (err) {
+      dialogs.notify({ message: err instanceof Error ? err.message : 'Delete failed' });
+    }
   }
 
   async function handleDuplicate(id: string) {
-    await api.duplicateStory(id);
-    load();
+    try {
+      await api.duplicateStory(id);
+      load();
+    } catch (err) {
+      dialogs.notify({ message: err instanceof Error ? err.message : 'Duplicate failed' });
+    }
   }
 
   return (
@@ -65,8 +81,14 @@ export default function StoriesPage() {
             </Button>
           </div>
 
-          {loading ? (
-            <p className="text-sm text-muted-foreground">{t('dash.loading')}</p>
+          {error ? (
+            <ErrorState title={t('err.load')} message={error} onRetry={load} />
+          ) : loading ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Skeleton className="h-40" />
+              <Skeleton className="h-40" />
+              <Skeleton className="h-40" />
+            </div>
           ) : stories.length === 0 ? (
             <Card className="py-14 text-center">
               <CardContent>
@@ -99,12 +121,17 @@ export default function StoriesPage() {
                   </CardContent>
                   <div className="flex items-center justify-between gap-1 border-t px-4 py-2.5">
                     <span className="text-xs text-muted-foreground">
-                      {t('dash.updated', { time: formatRelative(story.updatedAt) })}
+                      {t('dash.updated', { time: formatRelative(story.updatedAt, lang) })}
                     </span>
                     <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title={t('dash.action.graph')} onClick={() => router.push(`/stories/${story.id}/graph`)}>
-                        <Share2 className="h-4 w-4" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => router.push(`/stories/${story.id}/graph`)}>
+                            <Share2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('dash.action.graph')}</TooltipContent>
+                      </Tooltip>
                       <Button size="icon" variant="ghost" className="h-8 w-8" title={t('dash.action.duplicate')} onClick={() => handleDuplicate(story.id)}>
                         <Copy className="h-4 w-4" />
                       </Button>

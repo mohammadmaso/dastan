@@ -10,12 +10,15 @@ import type { BranchService } from './branch-service.js';
 import type { PreferenceService } from './preference-service.js';
 import type { NodeService } from './node-service.js';
 
+import type { MemoryService } from '../memory/memory-service.js';
+
 export class StoryService {
   constructor(
     private db: Db,
     private branches: BranchService,
     private nodes: NodeService,
     private preferences: PreferenceService,
+    private memory?: MemoryService,
   ) {}
 
   async create(input: CreateStoryInput): Promise<Story> {

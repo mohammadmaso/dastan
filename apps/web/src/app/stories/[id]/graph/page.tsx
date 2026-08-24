@@ -35,15 +35,21 @@ export default function GraphPage({ params }: { params: { id: string } }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [detail, setDetail] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listBranches(storyId).then(setBranches);
+    api.listBranches(storyId).then(setBranches).catch(() => undefined);
   }, [storyId]);
 
   const load = async (branchId: string | null, silent = false) => {
-    const g = await api.getGraph(storyId, branchId);
-    setGraph(g);
-    if (!silent) setDetail(null);
+    try {
+      setError(null);
+      const g = await api.getGraph(storyId, branchId);
+      setGraph(g);
+      if (!silent) setDetail(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load graph');
+    }
   };
 
   useEffect(() => {
@@ -98,6 +104,7 @@ export default function GraphPage({ params }: { params: { id: string } }) {
         </Link>
         <span className="text-sm font-medium">{t('graph.title')}</span>
         <span className="text-xs text-muted-foreground">{t('graph.subtitle')}</span>
+        {error ? <span className="text-xs text-destructive">{error}</span> : null}
         <select
           className="ms-auto h-8 rounded-md border border-input bg-background px-2 text-sm"
           value={branchFilter}

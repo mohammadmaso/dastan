@@ -32,6 +32,10 @@ const chapterSchema = z.object({
 export default async function nodeRoutes(app: FastifyInstance, opts: { container: Container }) {
   const { container } = opts;
 
+  app.get('/stories/:id/nodes', async (req) => {
+    return container.nodes.listByStory((req.params as { id: string }).id);
+  });
+
   app.get('/branches/:id/nodes', async (req) => {
     return container.nodes.listByBranch((req.params as any).id);
   });

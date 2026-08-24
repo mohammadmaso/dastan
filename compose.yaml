@@ -1,0 +1,99 @@
+name: storywriter
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-storywriter}
+      POSTGRES_USER: ${POSTGRES_USER:-storywriter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storywriter}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-storywriter} -d ${POSTGRES_DB:-storywriter}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    restart: unless-stopped
+    volumes:
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  memory:
+    build:
+      context: .
+      dockerfile: infra/docker/memory.Dockerfile
+    restart: unless-stopped
+    environment:
+      FALKORDB_HOST: ${FALKORDB_HOST:-falkordb}
+      FALKORDB_PORT: ${FALKORDB_PORT:-6379}
+      FALKORDB_GRAPH: ${FALKORDB_GRAPH:-storywriter}
+    ports:
+      - "${MEMORY_PORT:-8000}:8000"
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${API_PORT:-3001}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-storywriter}
+      POSTGRES_USER: ${POSTGRES_USER:-storywriter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storywriter}
+      FALKORDB_HOST: ${FALKORDB_HOST:-falkordb}
+      FALKORDB_PORT: ${FALKORDB_PORT:-6379}
+      FALKORDB_GRAPH: ${FALKORDB_GRAPH:-storywriter}
+      MEMORY_URL: ${MEMORY_URL:-http://memory:8000}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    ports:
+      - "${API_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      memory:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:3001}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  falkordb_data:

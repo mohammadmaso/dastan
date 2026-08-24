@@ -1,4 +1,5 @@
 import type { Db } from '../db/index.js';
+import type { MemoryService } from '../memory/memory-service.js';
 import type {
   StoryPreferenceInput,
   StoryPreferenceVersion,
@@ -6,7 +7,10 @@ import type {
 } from '@storywriter/types';
 
 export class PreferenceService {
-  constructor(private db: Db) {}
+  constructor(
+    private db: Db,
+    private memory?: MemoryService,
+  ) {}
 
   async getLatest(storyId: string): Promise<StoryPreferenceVersion | null> {
     const { rows } = await this.db.query<Record<string, unknown>>(
@@ -37,7 +41,13 @@ export class PreferenceService {
        RETURNING *`,
       [storyId, JSON.stringify(preferences), note ?? null],
     );
-    return this.map(rows[0]);
+    const saved = this.map(rows[0]);
+    try {
+      await this.memory?.ingestWorld(storyId, preferences);
+    } catch (err) {
+      console.warn('[prefs] world ingest skipped', (err as Error).message);
+    }
+    return saved;
   }
 
   async history(storyId: string): Promise<StoryPreferenceVersion[]> {

@@ -19,6 +19,10 @@ export interface AppConfig {
     graph: string;
   };
 
+  memory: {
+    url: string;
+  };
+
   llm: {
     baseUrl: string;
     apiKey: string;
@@ -47,6 +51,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       host: env.FALKORDB_HOST ?? 'localhost',
       port: int(env.FALKORDB_PORT, 6379),
       graph: env.FALKORDB_GRAPH ?? 'storywriter',
+    },
+    memory: {
+      url: (env.MEMORY_URL ?? 'http://localhost:8000').replace(/\/$/, ''),
     },
     llm: {
       baseUrl: (env.LLM_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, ''),

@@ -10,7 +10,9 @@
     "dev:web": "pnpm --filter @storywriter/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "check:isolation": "pnpm --filter @storywriter/api check:isolation",
+    "smoke": "bash scripts/smoke.sh"
   },
   "engines": {
     "node": ">=20.0.0"

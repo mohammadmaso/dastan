@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/ui/error-state';
 
 const defaultGen: GenerationSettings = {
   temperature: 0.8,
@@ -32,17 +36,23 @@ export default function SettingsPage() {
   const [gen, setGen] = useState<GenerationSettings>(defaultGen);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.getSettings().then((s) => {
-      setSettings(s);
-      setBaseUrl(s.baseUrl);
-      setModel(s.model);
-      setProvider(s.provider);
-      setEmbeddingEnabled(s.embeddingEnabled);
-      setEmbeddingModel(s.embeddingModel);
-      setGen(s.generation);
-    });
+    api
+      .getSettings()
+      .then((s) => {
+        setSettings(s);
+        setBaseUrl(s.baseUrl);
+        setModel(s.model);
+        setProvider(s.provider);
+        setEmbeddingEnabled(s.embeddingEnabled);
+        setEmbeddingModel(s.embeddingModel);
+        setGen(s.generation);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .finally(() => setLoading(false));
   }, []);
 
   async function save() {
@@ -74,6 +84,8 @@ export default function SettingsPage() {
             <h1 className="font-serif text-2xl font-semibold">{t('settings.title')}</h1>
             <p className="text-sm text-muted-foreground">{t('settings.sub')}</p>
           </div>
+          {error ? <ErrorState title={t('err.load')} message={error} /> : null}
+          {loading ? <Skeleton className="h-40" /> : null}
 
           <Card>
             <CardHeader>
@@ -83,26 +95,24 @@ export default function SettingsPage() {
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>{t('lang.label')}</Label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value as 'en' | 'fa')}
-                >
-                  <option value="en">{t('lang.en')}</option>
-                  <option value="fa">{t('lang.fa')}</option>
-                </select>
+                <Select value={lang} onValueChange={(v) => setLang(v as 'en' | 'fa')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">{t('lang.en')}</SelectItem>
+                    <SelectItem value="fa">{t('lang.fa')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label>{t('theme.label')}</Label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value as Theme)}
-                >
-                  <option value="paper">{t('theme.paper')}</option>
-                  <option value="light">{t('theme.light')}</option>
-                  <option value="dark">{t('theme.dark')}</option>
-                </select>
+                <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="paper">{t('theme.paper')}</SelectItem>
+                    <SelectItem value="light">{t('theme.light')}</SelectItem>
+                    <SelectItem value="dark">{t('theme.dark')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
@@ -162,12 +172,7 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between rounded-md border p-3">
                 <Label>{t('settings.embeddingsEnabled')}</Label>
-                <input
-                  type="checkbox"
-                  checked={embeddingEnabled}
-                  onChange={(e) => setEmbeddingEnabled(e.target.checked)}
-                  className="h-4 w-4"
-                />
+                <Switch checked={embeddingEnabled} onCheckedChange={setEmbeddingEnabled} />
               </div>
               <div className="space-y-1">
                 <Label>{t('settings.embeddingModel')}</Label>

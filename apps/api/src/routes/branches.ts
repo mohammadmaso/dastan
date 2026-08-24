@@ -6,6 +6,7 @@ import { NotFoundError } from '../services/story-service.js';
 const createSchema = z.object({
   name: z.string().max(200).optional(),
   parentBranchId: z.string().optional().nullable(),
+  forkNodeId: z.string().optional().nullable(),
 });
 
 const updateSchema = z.object({

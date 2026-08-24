@@ -1,6 +1,5 @@
 import type { Db } from '../db/index.js';
 import type { AppConfig } from '../config.js';
-import { FalkorDB } from '../memory/falkordb.js';
 import { MemoryService } from '../memory/memory-service.js';
 import { StoryService } from './story-service.js';
 import { BranchService } from './branch-service.js';
@@ -13,7 +12,6 @@ import { ExportService } from './export-service.js';
 
 export interface Container {
   db: Db;
-  falkordb: FalkorDB;
   stories: StoryService;
   branches: BranchService;
   nodes: NodeService;
@@ -26,15 +24,13 @@ export interface Container {
 }
 
 export function buildContainer(db: Db, config: AppConfig): Container {
-  const falkordb = new FalkorDB(config);
-
   const chapters = new ChapterService(db);
   const settings = new SettingsService(db);
-  const memory = new MemoryService(db, falkordb, settings);
+  const memory = new MemoryService(db, config, settings);
   const nodes = new NodeService(db, chapters, memory);
   const branches = new BranchService(db);
-  const preferences = new PreferenceService(db);
-  const stories = new StoryService(db, branches, nodes, preferences);
+  const preferences = new PreferenceService(db, memory);
+  const stories = new StoryService(db, branches, nodes, preferences, memory);
   const generation = new GenerationService(
     stories,
     branches,
@@ -47,7 +43,6 @@ export function buildContainer(db: Db, config: AppConfig): Container {
 
   return {
     db,
-    falkordb,
     stories,
     branches,
     nodes,

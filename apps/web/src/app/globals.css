@@ -23,6 +23,8 @@
     --input: 39 28% 80%;
     --ring: 33 35% 45%;
     --radius: 0.5rem;
+    --popover: 43 45% 96%;
+    --popover-foreground: 30 24% 17%;
   }
 
   /* Plain white light theme. */
@@ -44,6 +46,8 @@
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
   }
 
   .dark {
@@ -64,6 +68,8 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+    --popover: 240 10% 5.5%;
+    --popover-foreground: 0 0% 98%;
   }
 
   * {

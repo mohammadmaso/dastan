@@ -1,5 +1,6 @@
 import type { StoryPreferences, StoryNode } from '@storywriter/types';
 import type { RetrievedMemory } from '@storywriter/types';
+import { PERSIAN_ORTHOGRAPHY_RULE } from './persian-orthography.js';
 
 /** Render preferences into a compact instruction block for the LLM. */
 export function preferencesToPrompt(p: StoryPreferences): string {
@@ -131,8 +132,9 @@ export function buildSystemPrompt(
     '## Writing Instructions',
     '- Continue immediately from where the last episode ends; do not recap.',
     '- Write in flowing narrative prose appropriate to the preferences above.',
-    '- End the segment at a natural, forward-looking moment.', 
+    '- End the segment at a natural, forward-looking moment.',
     '- Do not reference "the AI", "the system", or this prompt.',
+    `- ${PERSIAN_ORTHOGRAPHY_RULE}`,
   ].join('\n');
 }
 
@@ -144,6 +146,7 @@ Every option must:
 - Open a genuinely different narrative direction — each option is a believable next beat for THIS story, not a generic plot beat.
 - Preserve continuity: never contradict established facts, and build on what the characters were just doing.
 - Be evocative and specific. Forbidden: vague labels like "A sudden complication", "The quiet aftermath", "An unexpected revelation", "A change of plans".
+- ${PERSIAN_ORTHOGRAPHY_RULE}
 
 Return STRICT JSON in the following shape (no markdown, no prose outside JSON):
 {
@@ -152,28 +155,6 @@ Return STRICT JSON in the following shape (no markdown, no prose outside JSON):
     ... numberOfOptions items
   ]
 }`;
-
-/** System instruction for the retrieval agent's search-intent extraction. */
-export const RETRIEVAL_SYSTEM = `You are a story memory retrieval planner. Given the user's latest instruction and the current story state, decide what facts the writer needs from the story's knowledge graph to write a coherent, contradiction-free continuation: character states, previous promises, relationships, locations, objects, past conflicts, world rules, etc.
-
-Return STRICT JSON:
-{
-  "intents": [
-    { "query": "a specific natural-language search query about one fact", "scope": "GLOBAL_STORY_MEMORY" | "CURRENT_BRANCH_MEMORY" }
-  ]
-}
-Return 2-5 intents. Scope CURRENT_BRANCH_MEMORY for branch-specific events, GLOBAL_STORY_MEMORY for world/character definitions shared across branches.`;
-
-/** System instruction for entity extraction when an episode is added to memory. */
-export const EXTRACT_SYSTEM = `You analyze a short story narrative and extract the entities (characters, locations, organizations, objects) and their relationships, plus a one-sentence episode summary.
-
-Return STRICT JSON:
-{
-  "summary": "one sentence summarizing this episode",
-  "entities": [ { "name": "...", "type": "character|location|organization|object|other" } ],
-  "relationships": [ { "source": "entity name", "type": "short relation verb e.g. 'trusts','fears','searches_for'", "target": "entity name" } ]
-}
-Only include entities actually present in the text.`;
 
 /** Build the prompt that asks the model to write one continuation segment. */
 export function buildContinuationPrompt(params: {

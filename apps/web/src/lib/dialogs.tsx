@@ -1,216 +1,119 @@
 'use client';
 
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import { useApp } from '@/lib/app-state';
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
-import { createPortal } from 'react-dom';
-import { Loader2 } from 'lucide-react';
-import { useApp } from './app-state';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-export interface PromptOptions {
-  title: string;
-  description?: string;
-  initial?: string;
-  placeholder?: string;
-  okLabel?: string;
-  cancelLabel?: string;
-  busy?: boolean;
-}
-
-export interface ConfirmOptions {
+interface ConfirmOpts {
   title?: string;
   message: string;
   okLabel?: string;
-  cancelLabel?: string;
   danger?: boolean;
 }
-
-export interface NotifyOptions {
-  title?: string;
-  message: string;
+interface PromptOpts {
+  title: string;
+  placeholder?: string;
+  initial?: string;
   okLabel?: string;
 }
 
-export interface Dialogs {
-  prompt: (opts: PromptOptions) => Promise<string | null>;
-  confirm: (opts: ConfirmOptions) => Promise<boolean>;
-  notify: (opts: NotifyOptions) => Promise<void>;
+interface Dialogs {
+  confirm: (opts: ConfirmOpts) => Promise<boolean>;
+  prompt: (opts: PromptOpts) => Promise<string | null>;
+  notify: (opts: { message: string }) => void;
 }
-
-type Pending =
-  | ({ kind: 'prompt' } & PromptOptions)
-  | ({ kind: 'confirm' } & ConfirmOptions)
-  | ({ kind: 'notify' } & NotifyOptions);
 
 const Ctx = createContext<Dialogs | null>(null);
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
-export function DialogsProvider({ children }: { children: React.ReactNode }) {
+export function DialogsProvider({ children }: { children: ReactNode }) {
   const { t } = useApp();
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [input, setInput] = useState('');
-  const resolver = useRef<((v: any) => void) | null>(null);
+  const [confirmState, setConfirmState] = useState<(ConfirmOpts & { resolve: (v: boolean) => void }) | null>(null);
+  const [promptState, setPromptState] = useState<(PromptOpts & { resolve: (v: string | null) => void }) | null>(null);
+  const [promptValue, setPromptValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const settle = useCallback((value: unknown) => {
-    resolver.current?.(value);
-    resolver.current = null;
-    setPending(null);
+  const confirm = useCallback((opts: ConfirmOpts) => {
+    return new Promise<boolean>((resolve) => setConfirmState({ ...opts, resolve }));
   }, []);
 
-  const prompt = useCallback(
-    (opts: PromptOptions) =>
-      new Promise<string | null>((resolve) => {
-        resolver.current = resolve;
-        setInput(opts.initial ?? '');
-        setPending({ kind: 'prompt', ...opts });
-      }),
-    [],
-  );
+  const prompt = useCallback((opts: PromptOpts) => {
+    setPromptValue(opts.initial ?? '');
+    return new Promise<string | null>((resolve) => setPromptState({ ...opts, resolve }));
+  }, []);
 
-  const confirm = useCallback(
-    (opts: ConfirmOptions) =>
-      new Promise<boolean>((resolve) => {
-        resolver.current = resolve;
-        setPending({ kind: 'confirm', ...opts });
-      }),
-    [],
-  );
-
-  const notify = useCallback(
-    (opts: NotifyOptions) =>
-      new Promise<void>((resolve) => {
-        resolver.current = resolve;
-        setPending({ kind: 'notify', ...opts });
-      }),
-    [],
-  );
-
-  useEffect(() => {
-    if (!pending) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        settle(pending.kind === 'confirm' ? false : null);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pending, settle]);
-
-  const submitPrompt = () => {
-    const val = input.trim();
-    settle(pending?.kind === 'prompt' && val ? val : null);
-  };
-
-  const value: Dialogs = { prompt, confirm, notify };
+  const notify = useCallback((opts: { message: string }) => {
+    toast(opts.message);
+  }, []);
 
   return (
-    <Ctx.Provider value={value}>
+    <Ctx.Provider value={{ confirm, prompt, notify }}>
       {children}
-      {pending &&
-        pending.kind === 'prompt' &&
-        createPortal(
-          <DialogShell dismissible onDismiss={() => settle(null)}>
-            <h3 className="font-serif text-lg font-semibold">{pending.title}</h3>
-            {pending.description ? (
-              <p className="mt-1 text-sm text-muted-foreground">{pending.description}</p>
-            ) : null}
-            <div className="my-4">
-              <Input
-                autoFocus
-                value={input}
-                placeholder={pending.placeholder}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitPrompt();
-                }}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => settle(null)}>
-                {pending.cancelLabel ?? t('dialog.cancel')}
-              </Button>
-              <Button onClick={submitPrompt} disabled={pending.busy || !input.trim()}>
-                {pending.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {pending.okLabel ?? t('dialog.ok')}
-              </Button>
-            </div>
-          </DialogShell>,
-          document.body,
-        )}
-      {pending &&
-        pending.kind === 'confirm' &&
-        createPortal(
-          <DialogShell dismissible onDismiss={() => settle(false)}>
-            <h3 className="font-serif text-lg font-semibold">{pending.title ?? t('dialog.confirmTitle')}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{pending.message}</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => settle(false)}>
-                {pending.cancelLabel ?? t('dialog.cancel')}
-              </Button>
-              <Button
-                variant={pending.danger ? 'destructive' : 'default'}
-                onClick={() => settle(true)}
-              >
-                {pending.okLabel ?? t('dialog.confirm')}
-              </Button>
-            </div>
-          </DialogShell>,
-          document.body,
-        )}
-      {pending &&
-        pending.kind === 'notify' &&
-        createPortal(
-          <DialogShell dismissible onDismiss={() => settle(undefined)}>
-            <h3 className="font-serif text-lg font-semibold">{pending.title ?? t('dialog.notifyTitle')}</h3>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{pending.message}</p>
-            <div className="mt-5 flex justify-end">
-              <Button onClick={() => settle(undefined)}>{pending.okLabel ?? t('dialog.ok')}</Button>
-            </div>
-          </DialogShell>,
-          document.body,
-        )}
-    </Ctx.Provider>
-  );
-}
+      <AlertDialog open={!!confirmState} onOpenChange={(o) => !o && confirmState?.resolve(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmState?.title ?? t('dialog.confirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmState?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { confirmState?.resolve(false); setConfirmState(null); }}>
+              {t('dialog.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className={confirmState?.danger ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : undefined}
+              onClick={() => { confirmState?.resolve(true); setConfirmState(null); }}
+            >
+              {confirmState?.okLabel ?? t('dialog.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-function DialogShell({
-  children,
-  dismissible,
-  onDismiss,
-}: {
-  children: React.ReactNode;
-  dismissible?: boolean;
-  onDismiss: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/50 p-4"
-      onMouseDown={(e) => {
-        if (dismissible && e.target === e.currentTarget) onDismiss();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-sm rounded-lg border bg-card p-5 text-card-foreground shadow-xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
+      <Dialog open={!!promptState} onOpenChange={(o) => { if (!o) { promptState?.resolve(null); setPromptState(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{promptState?.title}</DialogTitle>
+          </DialogHeader>
+          <Input
+            ref={inputRef}
+            value={promptValue}
+            placeholder={promptState?.placeholder}
+            onChange={(e) => setPromptValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                promptState?.resolve(promptValue.trim() || null);
+                setPromptState(null);
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { promptState?.resolve(null); setPromptState(null); }}>
+              {t('dialog.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                promptState?.resolve(promptValue.trim() || null);
+                setPromptState(null);
+              }}
+            >
+              {promptState?.okLabel ?? t('dialog.ok')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Ctx.Provider>
   );
 }
 

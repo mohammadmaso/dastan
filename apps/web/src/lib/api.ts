@@ -2,11 +2,11 @@ import type {
   Branch,
   Chapter,
   ContinueRequest,
-  ContinueStreamChunk,
   ContinuationOption,
   CreateStoryInput,
   LLMSettings,
   MemoryGraph,
+  RetrievalStep,
   SaveLLMSettingsInput,
   Story,
   StoryNode,
@@ -14,9 +14,6 @@ import type {
   StorySummary,
 } from '@storywriter/types';
 
-// The browser talks to the API through Next.js's same-origin `/api` rewrite
-// (proxied server-side to the API service over the Docker network). This avoids
-// cross-origin requests entirely, so no CORS is involved from the browser.
 const BASE = '/api';
 
 export class ApiError extends Error {
@@ -29,8 +26,6 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
-  // Only declare a JSON body when there is one, so GET/DELETE with no body
-  // aren't rejected as an empty application/json payload (FST_ERR_CTP_EMPTY_JSON_BODY).
   if (init?.body != null) {
     headers['Content-Type'] = 'application/json';
   }
@@ -44,7 +39,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // stories
   listStories: () => request<StorySummary[]>('/stories'),
   getStory: (id: string) => request<Story>(`/stories/${id}`),
   createStory: (input: CreateStoryInput) => request<Story>('/stories', { method: 'POST', body: JSON.stringify(input) }),
@@ -52,15 +46,18 @@ export const api = {
   deleteStory: (id: string) => request<void>(`/stories/${id}`, { method: 'DELETE' }),
   duplicateStory: (id: string) => request<Story>(`/stories/${id}/duplicate`, { method: 'POST' }),
 
-  // preferences
   getPreferences: (storyId: string) => request<StoryPreferenceVersion>(`/stories/${storyId}/preferences`),
-  savePreferences: (storyId: string, preferences: any, note?: string) =>
-    request<StoryPreferenceVersion>(`/stories/${storyId}/preferences`, { method: 'PUT', body: JSON.stringify({ preferences, note }) }),
+  getPreferenceHistory: (storyId: string) =>
+    request<StoryPreferenceVersion[]>(`/stories/${storyId}/preferences/history`),
+  savePreferences: (storyId: string, preferences: unknown, note?: string) =>
+    request<StoryPreferenceVersion>(`/stories/${storyId}/preferences`, {
+      method: 'PUT',
+      body: JSON.stringify({ preferences, note }),
+    }),
 
-  // branches
   listBranches: (storyId: string) => request<Branch[]>(`/stories/${storyId}/branches`),
   getBranch: (id: string) => request<Branch>(`/branches/${id}`),
-  createBranch: (storyId: string, body: { name?: string; parentBranchId?: string }) =>
+  createBranch: (storyId: string, body: { name?: string; parentBranchId?: string; forkNodeId?: string }) =>
     request<Branch>(`/stories/${storyId}/branches`, { method: 'POST', body: JSON.stringify(body) }),
   updateBranch: (id: string, patch: { name?: string; status?: string }) =>
     request<Branch>(`/branches/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
@@ -68,27 +65,34 @@ export const api = {
   duplicateBranch: (id: string) => request<Branch>(`/branches/${id}/duplicate`, { method: 'POST' }),
   exportBranch: (id: string) => `${BASE}/branches/${id}/export.md`,
 
-  // nodes
   listNodes: (branchId: string) => request<StoryNode[]>(`/branches/${branchId}/nodes`),
+  listStoryNodes: (storyId: string) => request<StoryNode[]>(`/stories/${storyId}/nodes`),
   getCurrentNode: (branchId: string) => request<StoryNode>(`/branches/${branchId}/nodes/current`),
   getNode: (id: string) => request<StoryNode>(`/nodes/${id}`),
-  createNode: (body: any) => request<StoryNode>('/branches/' + body.branchId + '/nodes', { method: 'POST', body: JSON.stringify(body) }),
-  updateNode: (id: string, patch: any) => request<StoryNode>(`/nodes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  createNode: (body: {
+    branchId: string;
+    parentNodeId?: string | null;
+    content: string;
+    nodeType?: string;
+    author?: string;
+    continuationLabel?: string | null;
+    makeCurrent?: boolean;
+  }) => request<StoryNode>('/branches/' + body.branchId + '/nodes', { method: 'POST', body: JSON.stringify(body) }),
+  updateNode: (id: string, patch: Record<string, unknown>) =>
+    request<StoryNode>(`/nodes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteNode: (id: string) => request<void>(`/nodes/${id}`, { method: 'DELETE' }),
   createChapter: (nodeId: string, title: string) =>
     request<Chapter>(`/nodes/${nodeId}/chapter`, { method: 'POST', body: JSON.stringify({ title }) }),
 
-  // settings
   getSettings: () => request<LLMSettings>('/settings'),
-  saveSettings: (input: SaveLLMSettingsInput) => request<LLMSettings>('/settings', { method: 'PUT', body: JSON.stringify(input) }),
+  saveSettings: (input: SaveLLMSettingsInput) =>
+    request<LLMSettings>('/settings', { method: 'PUT', body: JSON.stringify(input) }),
 
-  // memory graph
   getGraph: (storyId: string, branchId: string | null) =>
     request<MemoryGraph>(`/stories/${storyId}/graph${branchId ? `?branchId=${branchId}` : '?branchId=all'}`),
   retrieveEntity: (storyId: string, name: string, branchId: string) =>
-    request<any>(`/stories/${storyId}/entity/${encodeURIComponent(name)}?branchId=${branchId || 'all'}`),
+    request<unknown>(`/stories/${storyId}/entity/${encodeURIComponent(name)}?branchId=${branchId || 'all'}`),
 
-  // AI (non-streaming)
   suggestions: (
     body: { storyId: string; branchId: string; nodeId?: string; count?: number; instruction?: string },
     signal?: AbortSignal,
@@ -98,13 +102,21 @@ export const api = {
       body: JSON.stringify(body),
       signal,
     }),
-  retrieve: (body: any) => request<{ memories: any[]; activities: any[] }>('/ai/retrieve', { method: 'POST', body: JSON.stringify(body) }),
 };
 
-/** Stream an AI continuation from /ai/continue, calling onChunk per SSE frame. */
+export interface ContinueEvents {
+  onDelta?: (text: string) => void;
+  onRetrieval?: (step: RetrievalStep) => void;
+  onActivity?: (message: string) => void;
+  onNode?: (node: StoryNode) => void;
+  onContinuations?: (options: ContinuationOption[]) => void;
+  onError?: (error: string) => void;
+}
+
+/** Consume the AI SDK UI-message SSE stream from POST /ai/continue. */
 export async function streamContinue(
   body: ContinueRequest,
-  onChunk: (chunk: ContinueStreamChunk) => void,
+  events: ContinueEvents,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${BASE}/ai/continue`, {
@@ -132,11 +144,27 @@ export async function streamContinue(
         .find((l) => l.startsWith('data:'))
         ?.slice(5)
         .trim();
-      if (!line) continue;
+      if (!line || line === '[DONE]') continue;
+      let chunk: { type?: string; delta?: string; data?: unknown };
       try {
-        onChunk(JSON.parse(line) as ContinueStreamChunk);
+        chunk = JSON.parse(line);
       } catch {
-        /* ignore malformed frame */
+        continue;
+      }
+      const type = chunk.type ?? '';
+      if (type === 'text-delta' && chunk.delta) events.onDelta?.(chunk.delta);
+      else if (type === 'data-retrieval' && chunk.data) events.onRetrieval?.(chunk.data as RetrievalStep);
+      else if (type === 'data-activity' && chunk.data) {
+        const d = chunk.data as { message?: string };
+        if (d.message) events.onActivity?.(d.message);
+      } else if (type === 'data-node' && chunk.data) events.onNode?.(chunk.data as StoryNode);
+      else if (type === 'data-continuations' && chunk.data) {
+        events.onContinuations?.(chunk.data as ContinuationOption[]);
+      } else if (type === 'data-error' && chunk.data) {
+        const d = chunk.data as { error?: string };
+        events.onError?.(d.error ?? 'Generation failed');
+      } else if (type === 'error') {
+        events.onError?.(String((chunk as { errorText?: string }).errorText ?? 'Generation failed'));
       }
     }
   }

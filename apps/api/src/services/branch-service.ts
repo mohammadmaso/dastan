@@ -28,9 +28,9 @@ export class BranchService {
     const name =
       input.name ?? (count === 0 ? 'Main Line' : `Branch ${count + 1}`);
     const { rows } = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO branches (story_id, parent_branch_id, name)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [storyId, input.parentBranchId ?? null, name],
+      `INSERT INTO branches (story_id, parent_branch_id, fork_node_id, name)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [storyId, input.parentBranchId ?? null, input.forkNodeId ?? null, name],
     );
     return rowToCamel(rows[0]) as unknown as Branch;
   }
