@@ -9,8 +9,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/db/migrate.ts",
-    "check:isolation": "tsx src/memory/isolation.check.ts",
-    "check:persian": "tsx src/llm/persian-orthography.check.ts"
+    "check:isolation": "tsx src/memory/isolation.check.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^1.0.22",

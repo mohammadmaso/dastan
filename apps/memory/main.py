@@ -8,8 +8,10 @@ page) and cached by config hash so Fastify stays the single source of truth.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import os
+import re
 import traceback
 from datetime import datetime, timezone
 from typing import Any
@@ -33,6 +35,13 @@ app.add_middleware(
 FALKOR_HOST = os.environ.get("FALKORDB_HOST", "localhost")
 FALKOR_PORT = int(os.environ.get("FALKORDB_PORT", "6379"))
 FALKOR_GRAPH = os.environ.get("FALKORDB_GRAPH", "storywriter")
+
+# Graphiti 0.29+ rejects group_id characters other than [A-Za-z0-9_-].
+_GROUP_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def _safe_gid(gid: str) -> str:
+    return _GROUP_UNSAFE.sub("_", gid).strip("_")
 
 
 # ---------------------------------------------------------------------------
@@ -78,30 +87,27 @@ def _graphiti(llm: LLMOpts | None):
         return _clients[key]
 
     from graphiti_core import Graphiti
-
-    driver = _get_driver()
-    if llm is None:
-        client = Graphiti(graph_driver=driver)
-        _clients[key] = client
-        return client
-
     from graphiti_core.llm_client.config import LLMConfig
     from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
     from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
     from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 
+    # openai>=3 raises at client init if api_key is missing, so always pass one —
+    # even the no-LLM path (delete / startup indices) cannot use Graphiti().
+    opts = llm or LLMOpts(base_url="https://api.openai.com/v1", api_key="not-set", model="gpt-4o-mini")
+    driver = _get_driver()
     cfg = LLMConfig(
-        api_key=llm.api_key or "not-set",
-        model=llm.model,
-        small_model=llm.small_model or llm.model,
-        base_url=llm.base_url.rstrip("/"),
+        api_key=opts.api_key or "not-set",
+        model=opts.model,
+        small_model=opts.small_model or opts.model,
+        base_url=opts.base_url.rstrip("/"),
     )
     llm_client = OpenAIGenericClient(config=cfg)
     embedder = OpenAIEmbedder(
         config=OpenAIEmbedderConfig(
-            api_key=llm.api_key or "not-set",
-            embedding_model=llm.embedding_model,
-            base_url=llm.base_url.rstrip("/"),
+            api_key=opts.api_key or "not-set",
+            embedding_model=opts.embedding_model,
+            base_url=opts.base_url.rstrip("/"),
         )
     )
     try:
@@ -161,6 +167,7 @@ def _node_dict(n: Any) -> dict[str, Any]:
 
 
 async def _search_edges(g, query: str, group_ids: list[str], center: str | None, limit: int):
+    group_ids = [_safe_gid(g) for g in group_ids]
     kwargs: dict[str, Any] = {"query": query}
     # Graphiti APIs have drifted: try group_ids (list) then group_id (str).
     try:
@@ -190,6 +197,7 @@ async def _search_edges(g, query: str, group_ids: list[str], center: str | None,
 async def _search_nodes(g, query: str, group_ids: list[str], limit: int):
     from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
 
+    group_ids = [_safe_gid(g) for g in group_ids]
     config = NODE_HYBRID_SEARCH_RRF.model_copy(deep=True)
     config.limit = limit
     try:
@@ -288,21 +296,21 @@ async def build_indices(body: dict | None = None):
 async def add_episode(body: AddEpisodeIn):
     from graphiti_core.nodes import EpisodeType
 
-    g = _graphiti(body.llm)
-    await _ensure_indices(g)
-    ref = (
-        datetime.fromisoformat(body.reference_time.replace("Z", "+00:00"))
-        if body.reference_time
-        else datetime.now(timezone.utc)
-    )
     try:
+        g = _graphiti(body.llm)
+        await _ensure_indices(g)
+        ref = (
+            datetime.fromisoformat(body.reference_time.replace("Z", "+00:00"))
+            if body.reference_time
+            else datetime.now(timezone.utc)
+        )
         result = await g.add_episode(
             name=body.name,
             episode_body=body.episode_body,
             source=EpisodeType.text,
             source_description=body.source_description,
             reference_time=ref,
-            group_id=body.group_id,
+            group_id=_safe_gid(body.group_id),
         )
     except Exception as err:
         log.error("add_episode failed: %s\n%s", err, traceback.format_exc())
@@ -313,14 +321,14 @@ async def add_episode(body: AddEpisodeIn):
     return {
         "uuid": uuid,
         "name": body.name,
-        "group_id": body.group_id,
+        "group_id": _safe_gid(body.group_id),
     }
 
 
 @app.delete("/episodes/{uuid}")
 async def delete_episode(uuid: str, llm_base: str | None = None):
-    g = _graphiti(None)
     try:
+        g = _graphiti(None)
         if hasattr(g, "remove_episode"):
             await g.remove_episode(uuid)
         elif hasattr(g, "delete_episode"):
@@ -337,12 +345,18 @@ async def delete_episode(uuid: str, llm_base: str | None = None):
 
 
 async def _cypher_delete_episode(uuid: str) -> None:
-    driver = _get_driver()
-    q = "MATCH (e:Episodic {uuid: $uuid}) DETACH DELETE e"
-    try:
-        await driver.execute_query(q, uuid=uuid)
-    except TypeError:
-        await driver.execute_query(q.replace("$uuid", f"'{uuid}'"))
+    # The episode lives in whichever group graph ingested it, and the caller only
+    # has the uuid, so sweep every graph.
+    q = f"MATCH (e:Episodic {{uuid: '{_esc(uuid)}'}}) DETACH DELETE e"
+    client = _get_driver().client
+    names = client.list_graphs()
+    if inspect.isawaitable(names):
+        names = await names
+    for name in list(names or []) or [FALKOR_GRAPH]:
+        try:
+            await _run_cypher(q, str(name))
+        except Exception as err:
+            log.warning("delete episode %s in %s: %s", uuid, name, err)
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +366,8 @@ async def _cypher_delete_episode(uuid: str) -> None:
 
 @app.post("/search")
 async def search(body: SearchIn):
-    g = _graphiti(body.llm)
     try:
+        g = _graphiti(body.llm)
         edges = await _search_edges(
             g, body.query, body.group_ids, body.center_node_uuid, body.num_results
         )
@@ -365,8 +379,8 @@ async def search(body: SearchIn):
 
 @app.post("/search/nodes")
 async def search_nodes(body: NodeSearchIn):
-    g = _graphiti(body.llm)
     try:
+        g = _graphiti(body.llm)
         nodes = await _search_nodes(g, body.query, body.group_ids, body.num_results)
     except Exception as err:
         log.error("node search failed: %s\n%s", err, traceback.format_exc())
@@ -379,25 +393,28 @@ async def search_nodes(body: NodeSearchIn):
 # ---------------------------------------------------------------------------
 
 
+NODE_Q = "MATCH (n:Entity) RETURN n.uuid, n.name, n.summary, n.group_id LIMIT 400"
+REL_Q = (
+    "MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity) "
+    "RETURN a.uuid, a.name, b.uuid, b.name, r.name, r.fact, r.uuid, r.group_id LIMIT 800"
+)
+
+
 @app.get("/graph")
 async def graph(group_ids: str = ""):
-    ids = [g for g in group_ids.split(",") if g]
-    driver = _get_driver()
+    # One FalkorDB graph per group_id, so scoping is the graph selection itself
+    # rather than a group_id predicate.
+    ids = [_safe_gid(g) for g in group_ids.split(",") if g] or [FALKOR_GRAPH]
     entities: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
 
-    id_list = ", ".join(f"'{_esc(g)}'" for g in ids) if ids else ""
-    where_n = f"WHERE n.group_id IN [{id_list}]" if id_list else ""
-    where_r = f"WHERE r.group_id IN [{id_list}]" if id_list else ""
-
-    try:
-        node_q = f"MATCH (n:Entity) {where_n} RETURN n.uuid, n.name, n.summary, n.group_id LIMIT 400"
-        rel_q = (
-            f"MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity) {where_r} "
-            "RETURN a.name, b.name, r.name, r.fact, r.uuid, r.group_id LIMIT 800"
-        )
-        node_rows = await _run_cypher(driver, node_q)
-        rel_rows = await _run_cypher(driver, rel_q)
+    for gid in ids:
+        try:
+            node_rows = await _run_cypher(NODE_Q, gid)
+            rel_rows = await _run_cypher(REL_Q, gid)
+        except Exception as err:
+            log.warning("graph cypher failed for %s: %s", gid, err)
+            continue
         for row in node_rows:
             vals = _row_vals(row)
             if len(vals) < 2:
@@ -407,26 +424,27 @@ async def graph(group_ids: str = ""):
                     "id": str(vals[0] or vals[1]),
                     "name": str(vals[1] or ""),
                     "summary": str(vals[2] or "") if len(vals) > 2 else "",
-                    "group_id": str(vals[3]) if len(vals) > 3 and vals[3] else None,
+                    "group_id": str(vals[3]) if len(vals) > 3 and vals[3] else gid,
                     "type": "entity",
                 }
             )
         for row in rel_rows:
             vals = _row_vals(row)
-            if len(vals) < 2:
+            if len(vals) < 6:
                 continue
             relationships.append(
                 {
-                    "id": str(vals[4] if len(vals) > 4 and vals[4] else f"r:{len(relationships)}"),
-                    "source": str(vals[0] or ""),
-                    "target": str(vals[1] or ""),
-                    "type": str(vals[2] or "relates_to"),
-                    "summary": str(vals[3] or "") if len(vals) > 3 else "",
-                    "group_id": str(vals[5]) if len(vals) > 5 and vals[5] else None,
+                    "id": str(vals[6] or f"r:{gid}:{len(relationships)}"),
+                    # Names stay for display; *_id are what the visualiser joins on.
+                    "source": str(vals[1] or ""),
+                    "target": str(vals[3] or ""),
+                    "source_id": str(vals[0] or vals[1] or ""),
+                    "target_id": str(vals[2] or vals[3] or ""),
+                    "type": str(vals[4] or "relates_to"),
+                    "summary": str(vals[5] or ""),
+                    "group_id": str(vals[7]) if len(vals) > 7 and vals[7] else gid,
                 }
             )
-    except Exception as err:
-        log.warning("graph cypher failed: %s", err)
 
     return {"entities": entities, "relationships": relationships}
 
@@ -443,23 +461,24 @@ def _row_vals(row: Any) -> list[Any]:
     return [row]
 
 
-async def _run_cypher(driver, query: str) -> list[Any]:
-    try:
-        result = await driver.execute_query(query)
-    except Exception:
-        # Some drivers are sync.
-        result = driver.execute_query(query)
-        if hasattr(result, "__await__"):
-            result = await result
+async def _run_cypher(query: str, graph_name: str | None = None) -> list[Any]:
+    """Run raw Cypher against a single FalkorDB graph.
+
+    Graphiti is multi-tenant on FalkorDB: every group_id becomes its own graph
+    key, so direct Cypher has to select that graph. Going through
+    driver.execute_query() would always hit the driver's default graph, which is
+    empty for anything Graphiti wrote.
+    """
+    graph = _get_driver().client.select_graph(graph_name or FALKOR_GRAPH)
+    result = graph.query(query)
+    if inspect.isawaitable(result):
+        result = await result
     if result is None:
         return []
-    if isinstance(result, tuple):
-        result = result[0]
-    if hasattr(result, "records"):
-        return list(result.records)
-    if isinstance(result, list):
-        return result
-    return []
+    rows = getattr(result, "result_set", None)
+    if rows is None:
+        rows = getattr(result, "records", None)
+    return list(rows or [])
 
 
 # ---------------------------------------------------------------------------
@@ -469,28 +488,27 @@ async def _run_cypher(driver, query: str) -> list[Any]:
 
 @app.post("/admin/seed-fact")
 async def seed_fact(body: SeedFactIn):
-    driver = _get_driver()
     uid = str(uuid4())
+    gid = _safe_gid(body.group_id)
     q = (
-        f"MERGE (a:Entity {{name: '{_esc(body.source)}', group_id: '{_esc(body.group_id)}'}}) "
-        f"MERGE (b:Entity {{name: '{_esc(body.target)}', group_id: '{_esc(body.group_id)}'}}) "
-        f"CREATE (a)-[r:RELATES_TO {{uuid: '{uid}', group_id: '{_esc(body.group_id)}', "
+        f"MERGE (a:Entity {{name: '{_esc(body.source)}', group_id: '{_esc(gid)}'}}) "
+        f"MERGE (b:Entity {{name: '{_esc(body.target)}', group_id: '{_esc(gid)}'}}) "
+        f"CREATE (a)-[r:RELATES_TO {{uuid: '{uid}', group_id: '{_esc(gid)}', "
         f"name: '{_esc(body.name)}', fact: '{_esc(body.fact)}'}}]->(b) "
         "RETURN r.uuid"
     )
-    await _run_cypher(driver, q)
-    return {"uuid": uid, "group_id": body.group_id, "fact": body.fact}
+    await _run_cypher(q, gid)
+    return {"uuid": uid, "group_id": gid, "fact": body.fact}
 
 
 @app.post("/admin/facts-in-group")
 async def facts_in_group(body: dict):
-    gid = str(body.get("group_id") or "")
-    driver = _get_driver()
+    gid = _safe_gid(str(body.get("group_id") or ""))
     q = (
         f"MATCH ()-[r:RELATES_TO]->() WHERE r.group_id = '{_esc(gid)}' "
         "RETURN r.fact, r.group_id"
     )
-    rows = await _run_cypher(driver, q)
+    rows = await _run_cypher(q, gid)
     facts = []
     for row in rows:
         vals = _row_vals(row)

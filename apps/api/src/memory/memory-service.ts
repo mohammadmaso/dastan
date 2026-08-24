@@ -267,6 +267,8 @@ export class MemoryService {
         id: String(rel.id ?? `r:${i}`),
         source: String(rel.source ?? ''),
         target: String(rel.target ?? ''),
+        sourceId: String(rel.source_id ?? rel.source ?? ''),
+        targetId: String(rel.target_id ?? rel.target ?? ''),
         type: String(rel.type ?? 'relates_to'),
         summary: rel.summary ? String(rel.summary) : undefined,
       }));

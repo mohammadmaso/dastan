@@ -1,32 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  MarkerType,
-  type Node as RFNode,
-  type Edge as RFEdge,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import { ArrowLeft } from 'lucide-react';
 import type { MemoryGraph, MemoryEntity, Branch } from '@storywriter/types';
 import { api } from '@/lib/api';
 import { useApp } from '@/lib/app-state';
 import { SiteHeader } from '@/components/site-header';
+import { MemoryGraphView } from '@/components/story/memory-graph';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-
-const TYPE_COLORS: Record<string, string> = {
-  character: '#8b5cf6',
-  location: '#22d3ee',
-  organization: '#facc15',
-  object: '#f472b6',
-  other: '#64748b',
-};
 
 export default function GraphPage({ params }: { params: { id: string } }) {
   const storyId = params.id;
@@ -35,6 +17,7 @@ export default function GraphPage({ params }: { params: { id: string } }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [detail, setDetail] = useState<any>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,7 +29,10 @@ export default function GraphPage({ params }: { params: { id: string } }) {
       setError(null);
       const g = await api.getGraph(storyId, branchId);
       setGraph(g);
-      if (!silent) setDetail(null);
+      if (!silent) {
+        setDetail(null);
+        setSelectedId(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load graph');
     }
@@ -63,35 +49,10 @@ export default function GraphPage({ params }: { params: { id: string } }) {
   }
 
   async function onNodeClick(entity: MemoryEntity) {
+    setSelectedId(entity.id);
     const d = await api.retrieveEntity(storyId, entity.name, branchFilter).catch(() => null);
     setDetail(d);
   }
-
-  const { nodes, edges } = useMemo(() => {
-    const nodes: RFNode[] = (graph?.entities ?? []).map((e) => ({
-      id: e.id,
-      position: posFrom(e.name),
-      data: { label: e.name, type: e.type },
-      style: {
-        border: `1px solid ${TYPE_COLORS[e.type] ?? TYPE_COLORS.other}`,
-        borderRadius: 8,
-        background: 'hsl(var(--card))',
-        color: 'hsl(var(--foreground))',
-        fontSize: 12,
-        padding: '4px 8px',
-      },
-    }));
-    const edges: RFEdge[] = (graph?.relationships ?? []).map((r, i) => ({
-      id: r.id,
-      source: `e:${r.source}`,
-      target: `e:${r.target}`,
-      label: r.type,
-      markerEnd: { type: MarkerType.ArrowClosed },
-      style: { stroke: 'hsl(var(--border))' },
-      labelStyle: { fontSize: 10, fill: 'hsl(var(--muted-foreground))' },
-    }));
-    return { nodes, edges };
-  }, [graph]);
 
   return (
     <div className="flex h-full flex-col">
@@ -128,34 +89,18 @@ export default function GraphPage({ params }: { params: { id: string } }) {
               </p>
             </div>
           ) : null}
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            fitView
-            nodesConnectable={false}
-            onNodeClick={(_, n) => {
-              const entity = graph?.entities.find((e) => e.id === n.id);
-              if (entity) onNodeClick(entity);
-            }}
-          >
-            <Background gap={16} size={1} />
-            <Controls />
-            <MiniMap
-              nodeColor={(n) => TYPE_COLORS[(n.data as any)?.type] ?? TYPE_COLORS.other}
-              nodeStrokeWidth={2}
-            />
-          </ReactFlow>
+          <MemoryGraphView graph={graph} selectedId={selectedId} onSelect={onNodeClick} />
         </div>
 
         <aside className="overflow-y-auto border-s p-4">
           {detail ? (
             <div>
-              <div className="mb-2 flex items-center gap-2">
-                <Badge style={{ backgroundColor: TYPE_COLORS[detail.entity?.type] ?? TYPE_COLORS.other }}>
-                  {detail.entity?.type}
-                </Badge>
-                <h3 className="font-serif text-lg font-semibold">{detail.entity?.name}</h3>
-              </div>
+              <h3 className="mb-1 font-serif text-lg font-semibold">{detail.entity?.name}</h3>
+              {detail.entity?.summary ? (
+                <p className="mb-4 whitespace-pre-line text-sm text-muted-foreground">
+                  {detail.entity.summary}
+                </p>
+              ) : null}
 
               {detail.relationships?.length ? (
                 <div className="mb-4">
@@ -193,13 +138,4 @@ export default function GraphPage({ params }: { params: { id: string } }) {
       </div>
     </div>
   );
-}
-
-// Deterministic pseudo-position from name so layout is stable.
-function posFrom(name: string): { x: number; y: number } {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  const angle = (h % 360) * (Math.PI / 180);
-  const radius = 60 + (h % 160);
-  return { x: Math.cos(angle) * radius + 300, y: Math.sin(angle) * radius + 200 };
 }

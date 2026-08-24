@@ -1,11 +1,11 @@
 /** Graphiti group_id helpers. One namespace per world + one per branch. */
 
 export function worldGroup(storyId: string): string {
-  return `story:${storyId}:world`;
+  return `story_${storyId}_world`;
 }
 
 export function branchGroup(storyId: string, branchId: string): string {
-  return `story:${storyId}:branch:${branchId}`;
+  return `story_${storyId}_branch_${branchId}`;
 }
 
 export interface MemoryFact {

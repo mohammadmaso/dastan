@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { GitFork, Loader2, PenLine, RefreshCw, Sparkles } from 'lucide-react';
 import type { ContinuationOption } from '@storywriter/types';
 import { useApp } from '@/lib/app-state';
@@ -14,7 +14,7 @@ interface Props {
   onChoose: (option: ContinuationOption) => void;
   onBranch: (option: ContinuationOption) => void;
   onCustom: (text: string) => void;
-  onMore: () => void;
+  onMore: () => void | Promise<void>;
   onGenerate?: () => void;
   emptyStory?: boolean;
 }
@@ -32,6 +32,21 @@ export function WriteHead({
   const { t } = useApp();
   const [own, setOwn] = useState('');
   const [showOwn, setShowOwn] = useState(false);
+  const [moreBusy, setMoreBusy] = useState(false);
+  const moreLock = useRef(false);
+  const locked = busy || moreBusy;
+
+  async function handleMore() {
+    if (locked || moreLock.current) return;
+    moreLock.current = true;
+    setMoreBusy(true);
+    try {
+      await onMore();
+    } finally {
+      moreLock.current = false;
+      setMoreBusy(false);
+    }
+  }
 
   if (emptyStory && !busy) {
     return (
@@ -69,8 +84,8 @@ export function WriteHead({
     <div className="mx-auto max-w-[42rem] space-y-3 px-6 pb-16">
       <div className="flex items-center justify-between">
         <h3 className="font-serif text-sm font-semibold">{t('cont.title')}</h3>
-        <Button size="sm" variant="ghost" onClick={onMore} disabled={busy}>
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        <Button size="sm" variant="ghost" onClick={handleMore} disabled={locked}>
+          {locked ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           {t('cont.more')}
         </Button>
       </div>
@@ -87,10 +102,10 @@ export function WriteHead({
                   {opt.summary}
                 </p>
                 <div className="mt-2 flex gap-2">
-                  <Button size="sm" onClick={() => onChoose(opt)} disabled={busy}>
+                  <Button size="sm" onClick={() => onChoose(opt)} disabled={locked}>
                     {t('cont.continue')}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => onBranch(opt)} disabled={busy}>
+                  <Button size="sm" variant="outline" onClick={() => onBranch(opt)} disabled={locked}>
                     <GitFork className="h-3.5 w-3.5" /> {t('cont.branch')}
                   </Button>
                 </div>
@@ -98,7 +113,7 @@ export function WriteHead({
             </CardContent>
           </Card>
         ))}
-        {options.length === 0 && !busy ? (
+        {options.length === 0 && !locked ? (
           <p className="text-sm text-muted-foreground">{t('cont.empty')}</p>
         ) : null}
       </div>
@@ -111,7 +126,7 @@ export function WriteHead({
           className="min-h-[80px] font-serif"
         />
         <div className="flex justify-end">
-          <Button size="sm" disabled={!own.trim() || busy} onClick={() => { onCustom(own.trim()); setOwn(''); }}>
+          <Button size="sm" disabled={!own.trim() || locked} onClick={() => { onCustom(own.trim()); setOwn(''); }}>
             <PenLine className="h-3.5 w-3.5" /> {t('cont.custom')}
           </Button>
         </div>

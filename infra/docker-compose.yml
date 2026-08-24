@@ -1,4 +1,0 @@
-# Prefer the root compose.yaml (`docker compose up --build`).
-# This file stays as a fallback for `docker compose -f infra/docker-compose.yml`.
-include:
-  - path: ../compose.yaml

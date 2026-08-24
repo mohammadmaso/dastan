@@ -2,4 +2,6 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic>=2.11.5
 graphiti-core[falkordb]>=0.18.0
+# graphiti-core imports httpx directly; openai>=3 pulled httpx2 instead and left this missing.
+httpx>=0.27
 python-dotenv==1.0.1

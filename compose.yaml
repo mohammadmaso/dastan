@@ -20,7 +20,9 @@ services:
     image: falkordb/falkordb:latest
     restart: unless-stopped
     volumes:
-      - falkordb_data:/data
+      # The image's redis `dir` is /var/lib/falkordb/data, not /data — mounting
+      # /data instead silently drops the whole graph on every container rebuild.
+      - falkordb_data:/var/lib/falkordb/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

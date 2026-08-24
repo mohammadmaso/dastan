@@ -26,7 +26,6 @@ import {
   preferencesToPrompt,
   SUGGESTIONS_SYSTEM,
 } from '../llm/prompts.js';
-import { fixPersianOrthography } from '../llm/persian-orthography.js';
 
 export type StreamWriter = UIMessageStreamWriter;
 
@@ -175,7 +174,7 @@ export class GenerationService {
       }
     }
 
-    const trimmed = fixPersianOrthography(text.trim());
+    const trimmed = text.trim();
     if (!trimmed) {
       writer.write({
         type: 'data-error',
@@ -281,8 +280,8 @@ export class GenerationService {
           .filter((o): o is { label: string; summary: string } => Boolean(o?.label && o?.summary))
           .map((o, i) => ({
             id: `sug-${i}`,
-            label: fixPersianOrthography(String(o.label)).slice(0, 80),
-            summary: fixPersianOrthography(String(o.summary)),
+            label: String(o.label).slice(0, 80),
+            summary: String(o.summary),
           }));
         last = opts;
         writer?.write({ type: 'data-continuations', data: opts });
@@ -290,8 +289,8 @@ export class GenerationService {
       const final = await result.object;
       const options = (final.options ?? []).slice(0, 8).map((o, i) => ({
         id: `sug-${i}-${Date.now()}`,
-        label: fixPersianOrthography(String(o.label ?? `Option ${i + 1}`)).slice(0, 80),
-        summary: fixPersianOrthography(String(o.summary ?? '')),
+        label: String(o.label ?? `Option ${i + 1}`).slice(0, 80),
+        summary: String(o.summary ?? ''),
       }));
       return options.length ? options : last;
     } catch (err) {

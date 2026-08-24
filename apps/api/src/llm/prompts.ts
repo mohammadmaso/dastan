@@ -1,6 +1,5 @@
 import type { StoryPreferences, StoryNode } from '@storywriter/types';
 import type { RetrievedMemory } from '@storywriter/types';
-import { PERSIAN_ORTHOGRAPHY_RULE } from './persian-orthography.js';
 
 /** Render preferences into a compact instruction block for the LLM. */
 export function preferencesToPrompt(p: StoryPreferences): string {
@@ -134,7 +133,13 @@ export function buildSystemPrompt(
     '- Write in flowing narrative prose appropriate to the preferences above.',
     '- End the segment at a natural, forward-looking moment.',
     '- Do not reference "the AI", "the system", or this prompt.',
-    `- ${PERSIAN_ORTHOGRAPHY_RULE}`,
+    '',
+    '## Persian orthography (when writing فارسی)',
+    'Follow فرهنگستان conventions. Use نیم‌فاصله (U+200C) between a word and its bound affixes — never glue them and never use a full space.',
+    '- plural ها: نام‌ها، کتاب‌ها (not نامها or نام ها)',
+    '- prefix می / نمی: می‌رود، نمی‌داند (not میرود or می رود)',
+    '- comparative تر / ترین: بزرگ‌تر، بزرگ‌ترین (not بزرگتر)',
+    '- after silent ه: خانه‌ای، خانه‌ام، شده‌اند (not خانهای)',
   ].join('\n');
 }
 
@@ -146,7 +151,7 @@ Every option must:
 - Open a genuinely different narrative direction — each option is a believable next beat for THIS story, not a generic plot beat.
 - Preserve continuity: never contradict established facts, and build on what the characters were just doing.
 - Be evocative and specific. Forbidden: vague labels like "A sudden complication", "The quiet aftermath", "An unexpected revelation", "A change of plans".
-- ${PERSIAN_ORTHOGRAPHY_RULE}
+- When writing فارسی, follow فرهنگستان spelling: نیم‌فاصله (U+200C) for bound affixes — نام‌ها not نامها, می‌رود not میرود, بزرگ‌تر not بزرگتر, خانه‌ای not خانهای.
 
 Return STRICT JSON in the following shape (no markdown, no prose outside JSON):
 {

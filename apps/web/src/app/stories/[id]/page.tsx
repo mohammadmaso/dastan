@@ -439,12 +439,18 @@ export default function StoryPage({ params }: { params: { id: string } }) {
                   onCustom={writeOwn}
                   onMore={async () => {
                     if (!from) return;
-                    const { options } = await api.suggestions({
-                      storyId,
-                      branchId: from.branchId,
-                      nodeId: from.id,
-                    });
-                    setContinuations(options);
+                    try {
+                      const { options } = await api.suggestions({
+                        storyId,
+                        branchId: from.branchId,
+                        nodeId: from.id,
+                      });
+                      setContinuations(options);
+                    } catch (err) {
+                      dialogs.notify({
+                        message: err instanceof Error ? err.message : 'Failed to generate more',
+                      });
+                    }
                   }}
                   onGenerate={() => {
                     if (from) runContinue({ branchId: from.branchId, nodeId: from.id });

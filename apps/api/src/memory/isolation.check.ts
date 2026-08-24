@@ -16,6 +16,12 @@ function assert(cond: unknown, msg: string): void {
 
 function filterCheck(): void {
   const storyId = '11111111-1111-1111-1111-111111111111';
+  const safe = /^[A-Za-z0-9_-]+$/;
+  assert(safe.test(worldGroup(storyId)), 'world group_id must be Graphiti-safe');
+  assert(
+    safe.test(branchGroup(storyId, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')),
+    'branch group_id must be Graphiti-safe',
+  );
   const branchA = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
   const branchB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
   const world = worldGroup(storyId);
@@ -109,6 +115,26 @@ async function liveCheck(): Promise<void> {
   assert(!w.some((f) => f.includes('drowned') || f.includes('brass key')), 'world must not contain branch facts');
 
   console.log('ok  live FalkorDB group_id namespaces');
+
+  // The visualiser reads via raw Cypher rather than Graphiti, so it has its own
+  // way of missing a group's data entirely. Assert it sees what was seeded.
+  const r = await fetch(`${base}/graph?group_ids=${encodeURIComponent(groupA)}`);
+  assert(r.ok, `graph read failed ${r.status}`);
+  const g = (await r.json()) as {
+    entities: Array<{ id: string; name: string }>;
+    relationships: Array<{ source: string; target: string; source_id: string; target_id: string }>;
+  };
+  assert(g.entities.some((e) => e.name === 'MiraA'), 'graph must return branch A entities');
+  assert(!g.entities.some((e) => e.name === 'MiraB'), 'graph must not leak branch B entities');
+  const rel = g.relationships.find((x) => x.source === 'MiraA');
+  assert(rel, 'graph must return the seeded relationship');
+  const ids = new Set(g.entities.map((e) => e.id));
+  assert(
+    ids.has(rel!.source_id) && ids.has(rel!.target_id),
+    'relationship endpoints must reference returned entity ids',
+  );
+
+  console.log('ok  live /graph dump (entities, relationships, id join)');
 }
 
 filterCheck();

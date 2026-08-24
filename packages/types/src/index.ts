@@ -320,8 +320,12 @@ export interface MemoryEntity {
 
 export interface MemoryRelationship {
   id: string;
+  /** Entity names, for display. */
   source: string;
   target: string;
+  /** Entity ids matching MemoryEntity.id, for graph joins. */
+  sourceId: string;
+  targetId: string;
   type: string;
   summary?: string;
 }
