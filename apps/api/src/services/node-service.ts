@@ -197,11 +197,9 @@ export class NodeService {
     }
 
     if (!opts.skipMemory && node.content.trim() && node.nodeType !== 'ROOT') {
-      try {
-        await this.memory.addNodeEpisode(node);
-      } catch (err) {
-        console.error('[node] memory add failed (non-fatal)', (err as Error).message);
-      }
+      // ponytail: Graphiti extract is ~2min; Postgres is source of truth. Don't block the write.
+      // Upgrade: background queue if search starts missing the latest scene.
+      void this.memory.addNodeEpisode(node);
     }
     return node;
   }

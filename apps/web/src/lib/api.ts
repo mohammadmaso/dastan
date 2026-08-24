@@ -90,6 +90,8 @@ export const api = {
 
   getGraph: (storyId: string, branchId: string | null) =>
     request<MemoryGraph>(`/stories/${storyId}/graph${branchId ? `?branchId=${branchId}` : '?branchId=all'}`),
+  rebuildGraph: (storyId: string) =>
+    request<{ ingested: number }>(`/stories/${storyId}/graph/rebuild`, { method: 'POST' }),
   retrieveEntity: (storyId: string, name: string, branchId: string) =>
     request<unknown>(`/stories/${storyId}/entity/${encodeURIComponent(name)}?branchId=${branchId || 'all'}`),
 
@@ -159,7 +161,9 @@ export async function streamContinue(
         if (d.message) events.onActivity?.(d.message);
       } else if (type === 'data-node' && chunk.data) events.onNode?.(chunk.data as StoryNode);
       else if (type === 'data-continuations' && chunk.data) {
-        events.onContinuations?.(chunk.data as ContinuationOption[]);
+        const d = chunk.data as ContinuationOption[] | { options?: ContinuationOption[] };
+        const opts = Array.isArray(d) ? d : d.options;
+        if (opts) events.onContinuations?.(opts);
       } else if (type === 'data-error' && chunk.data) {
         const d = chunk.data as { error?: string };
         events.onError?.(d.error ?? 'Generation failed');

@@ -10,6 +10,11 @@ export default async function graphRoutes(app: FastifyInstance, opts: { containe
     return container.memory.getGraph((req.params as { id: string }).id, branchId);
   });
 
+  app.post('/stories/:id/graph/rebuild', async (req) => {
+    const storyId = (req.params as { id: string }).id;
+    return container.memory.rebuildStory(storyId);
+  });
+
   app.get('/stories/:id/entity/:name', async (req, reply) => {
     const { id, name } = req.params as { id: string; name: string };
     const query = req.query as { branchId?: string };

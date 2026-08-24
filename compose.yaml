@@ -19,9 +19,11 @@ services:
   falkordb:
     image: falkordb/falkordb:latest
     restart: unless-stopped
+    # Official persistence: volume on the image's data dir + AOF.
+    # https://docs.falkordb.com/operations/durability/persistence.html
+    environment:
+      REDIS_ARGS: "--appendonly yes"
     volumes:
-      # The image's redis `dir` is /var/lib/falkordb/data, not /data — mounting
-      # /data instead silently drops the whole graph on every container rebuild.
       - falkordb_data:/var/lib/falkordb/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

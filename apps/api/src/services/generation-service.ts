@@ -1,7 +1,6 @@
-import { z } from 'zod';
 import {
   streamText,
-  streamObject,
+  generateText,
   stepCountIs,
   type UIMessageStreamWriter,
 } from 'ai';
@@ -26,6 +25,7 @@ import {
   preferencesToPrompt,
   SUGGESTIONS_SYSTEM,
 } from '../llm/prompts.js';
+import { parseContinuationOptions } from './continuation-options.js';
 
 export type StreamWriter = UIMessageStreamWriter;
 
@@ -40,8 +40,8 @@ export class GenerationService {
   ) {}
 
   /**
-   * Agentic retrieval → stream prose → save node → add episode → stream
-   * continuation options. All progress is written as UI-message data parts.
+   * Agentic retrieval → stream prose → save node → propose continuations.
+   * Story memory ingest runs in the background so the writer is not blocked.
    */
   async continue(req: ContinueRequest, writer: StreamWriter): Promise<void> {
     const appCall = await this.settings.callOptions();
@@ -152,6 +152,7 @@ export class GenerationService {
     });
 
     let text = '';
+    writer.write({ type: 'text-start', id: 'prose' });
     try {
       const result = streamText({
         model,
@@ -166,6 +167,7 @@ export class GenerationService {
       }
     } catch (err) {
       if (!text.trim()) {
+        writer.write({ type: 'text-end', id: 'prose' });
         writer.write({
           type: 'data-error',
           data: { error: `LLM error: ${(err as Error).message}` },
@@ -173,6 +175,7 @@ export class GenerationService {
         return;
       }
     }
+    writer.write({ type: 'text-end', id: 'prose' });
 
     const trimmed = text.trim();
     if (!trimmed) {
@@ -183,31 +186,26 @@ export class GenerationService {
       return;
     }
 
-    const node = await this.nodes.create(
-      {
-        branchId: req.branchId,
-        parentNodeId: current.id,
-        content: trimmed,
-        nodeType: 'AI_GENERATED',
-        author: 'ai',
-        continuationLabel: req.style || null,
-        makeCurrent: true,
-      },
-      { skipMemory: true },
-    );
+    const node = await this.nodes.create({
+      branchId: req.branchId,
+      parentNodeId: current.id,
+      content: trimmed,
+      nodeType: 'AI_GENERATED',
+      author: 'ai',
+      continuationLabel: req.style || null,
+      makeCurrent: true,
+    });
     writer.write({ type: 'data-node', data: node });
-
-    await this.memory.addNodeEpisode(node);
     writer.write({
       type: 'data-activity',
-      data: { type: 'node_saved', message: 'Node saved and added to story memory.', at: new Date().toISOString() },
+      data: { type: 'node_saved', message: 'Node saved.', at: new Date().toISOString() },
     });
 
     const options = await this.streamSuggestions(
       { storyId: req.storyId, branchId: req.branchId, nodeId: node.id, count: suggestionCount },
       writer,
     );
-    writer.write({ type: 'data-continuations', data: options });
+    writer.write({ type: 'data-continuations', data: { options } });
   }
 
   async generateSuggestions(params: {
@@ -241,15 +239,6 @@ export class GenerationService {
         : await this.nodes.current(params.branchId);
     const soFar = current ? await this.lineageWindow(current, 12_000) : [];
 
-    const schema = z.object({
-      options: z.array(
-        z.object({
-          label: z.string(),
-          summary: z.string(),
-        }),
-      ),
-    });
-
     const system = [SUGGESTIONS_SYSTEM.replace('numberOfOptions', String(count)), '', preferencesToPrompt(prefs)].join(
       '\n',
     );
@@ -266,35 +255,25 @@ export class GenerationService {
       `\nPropose ${count} distinct, meaningful continuations.`,
     ].join('\n');
 
+    writer?.write({
+      type: 'data-activity',
+      data: { type: 'thinking', message: 'Proposing what happens next…', at: new Date().toISOString() },
+    });
+
     try {
-      const result = streamObject({
+      const result = await generateText({
         model,
-        schema,
         system,
         prompt: user,
         temperature: 0.9,
+        maxOutputTokens: 1200,
+        abortSignal: AbortSignal.timeout(45_000),
       });
-      let last: ContinuationOption[] = [];
-      for await (const partial of result.partialObjectStream) {
-        const opts = (partial.options ?? [])
-          .filter((o): o is { label: string; summary: string } => Boolean(o?.label && o?.summary))
-          .map((o, i) => ({
-            id: `sug-${i}`,
-            label: String(o.label).slice(0, 80),
-            summary: String(o.summary),
-          }));
-        last = opts;
-        writer?.write({ type: 'data-continuations', data: opts });
-      }
-      const final = await result.object;
-      const options = (final.options ?? []).slice(0, 8).map((o, i) => ({
-        id: `sug-${i}-${Date.now()}`,
-        label: String(o.label ?? `Option ${i + 1}`).slice(0, 80),
-        summary: String(o.summary ?? ''),
-      }));
-      return options.length ? options : last;
+      const options = parseContinuationOptions(result.text, count);
+      if (options.length) writer?.write({ type: 'data-continuations', data: { options } });
+      return options;
     } catch (err) {
-      console.warn('[suggestions] streamObject failed', (err as Error).message);
+      console.warn('[suggestions] generateText failed', (err as Error).message);
       return [];
     }
   }

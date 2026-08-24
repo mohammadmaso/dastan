@@ -288,6 +288,58 @@ export class MemoryService {
     return { entity, relationships, episodes: [] as Array<{ id: string; summary: string; branchId: string | null; at: string }> };
   }
 
+  /**
+   * Re-extract Graphiti entities from Postgres scenes. Narrative in Postgres is
+   * the source of truth; FalkorDB is a derived index that can go empty (volume
+   * wipe, driver graph-name mismatch).
+   */
+  async rebuildStory(storyId: string): Promise<{ ingested: number }> {
+    const { rows: eps } = await this.db.query<{ episode_uuid: string | null }>(
+      `SELECT episode_uuid FROM memory_episodes WHERE story_id = $1 AND episode_uuid IS NOT NULL`,
+      [storyId],
+    );
+    for (const row of eps) {
+      if (row.episode_uuid) await this.deleteEpisode(row.episode_uuid);
+    }
+    await this.db.query(`DELETE FROM memory_episodes WHERE story_id = $1`, [storyId]);
+
+    const { rows: prefRows } = await this.db.query<{ preferences: StoryPreferences }>(
+      `SELECT preferences FROM story_preferences WHERE story_id = $1 ORDER BY version DESC LIMIT 1`,
+      [storyId],
+    );
+    if (prefRows[0]?.preferences) await this.ingestWorld(storyId, prefRows[0].preferences);
+
+    const { rows } = await this.db.query<Record<string, unknown>>(
+      `SELECT * FROM story_nodes WHERE story_id = $1 ORDER BY created_at ASC`,
+      [storyId],
+    );
+    let ingested = 0;
+    for (const row of rows) {
+      const node: StoryNode = {
+        id: String(row.id),
+        storyId: String(row.story_id),
+        branchId: String(row.branch_id),
+        parentNodeId: row.parent_node_id ? String(row.parent_node_id) : null,
+        position: Number(row.position ?? 0),
+        siblingIndex: Number(row.sibling_index ?? 0),
+        content: String(row.content ?? ''),
+        nodeType: row.node_type as StoryNode['nodeType'],
+        author: (row.author as StoryNode['author']) ?? 'ai',
+        continuationLabel: null,
+        isCurrent: false,
+        chapterId: null,
+        chapterTitle: null,
+        generationMetadata: null,
+        createdAt: String(row.created_at ?? ''),
+        updatedAt: String(row.updated_at ?? ''),
+      };
+      if (!node.content.trim() || node.nodeType === 'ROOT') continue;
+      await this.addNodeEpisode(node);
+      ingested++;
+    }
+    return { ingested };
+  }
+
   // =========================================================================
   // HTTP
   // =========================================================================
