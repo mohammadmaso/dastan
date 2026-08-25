@@ -101,6 +101,13 @@ export function preferencesToPrompt(p: StoryPreferences): string {
   return lines.join('\n');
 }
 
+/** How many story beats one segment may spend, per the writer's pacing preference. */
+const BEAT_BUDGET: Record<string, string> = {
+  slow: 'Spend the whole segment on a single beat and let it play out fully.',
+  moderate: 'Spend the segment on one beat, two at the very most.',
+  fast: 'You may cover several beats, but stage each one as a scene rather than a summary.',
+};
+
 /** Build the system instruction block for story generation. */
 export function buildSystemPrompt(
   preferences: StoryPreferences,
@@ -131,8 +138,16 @@ export function buildSystemPrompt(
     '## Writing Instructions',
     '- Continue immediately from where the last episode ends; do not recap.',
     '- Write in flowing narrative prose appropriate to the preferences above.',
-    '- End the segment at a natural, forward-looking moment.',
     '- Do not reference "the AI", "the system", or this prompt.',
+    '',
+    '## Pacing and Scope (your most important constraint)',
+    'This is long-form fiction with many segments still to come. One segment is one scene: a single place and one continuous stretch of time.',
+    `- ${BEAT_BUDGET[preferences.pacing ?? 'slow'] ?? BEAT_BUDGET.slow}`,
+    '- Dramatize instead of summarizing: render the scene moment by moment through action, dialogue, physical detail and interiority. Never narrate that events happened over days or weeks.',
+    '- Do not skip time, change location, or jump to the aftermath unless the writer asked for it.',
+    '- Introduce at most one new complication, and only if it grows out of something already established. Do not invent twists, revelations, betrayals, deaths or new arrivals to raise the stakes.',
+    '- Leave the open threads open. Subtext, hesitation, small friction and unresolved tension are progress; a scene may end with nothing settled.',
+    '- End inside the scene or at its natural close. No cliffhangers, and no hooks promising a bigger event.',
     '',
     '## Persian orthography (when writing فارسی)',
     'Follow فرهنگستان conventions. Use نیم‌فاصله (U+200C) between a word and its bound affixes — never glue them and never use a full space.',
@@ -146,9 +161,13 @@ export function buildSystemPrompt(
 /** System instruction for the continuation-suggestions task. */
 export const SUGGESTIONS_SYSTEM = `You are a story architect deeply familiar with this exact story. Using the narrative context provided (the story so far and the current end), propose several distinct continuations the writer could choose next.
 
+This is long-form fiction with many episodes still to come, so your options set the pace. Keep them small.
+
 Every option must:
 - Name the concrete development: reference the specific characters, places, objects, conflicts or promises already established (use their real names).
-- Open a genuinely different narrative direction — each option is a believable next beat for THIS story, not a generic plot beat.
+- Be the immediate next beat: the reply to what was just said, the next move in the room, the thread just left hanging. Most options should continue the current scene.
+- Stay modest in scope. At most ONE option may open a new front, and never a twist, revelation, betrayal or death that has not been set up. The rest deepen what is already in motion.
+- Differ from each other in the choice they offer the writer, not in how much plot they burn. Several options may happen in the same room within the same minute.
 - Preserve continuity: never contradict established facts, and build on what the characters were just doing.
 - Be evocative and specific. Forbidden: vague labels like "A sudden complication", "The quiet aftermath", "An unexpected revelation", "A change of plans".
 - When writing فارسی, follow فرهنگستان spelling: نیم‌فاصله (U+200C) for bound affixes — نام‌ها not نامها, می‌رود not میرود, بزرگ‌تر not بزرگتر, خانه‌ای not خانهای.
